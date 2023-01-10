@@ -138,6 +138,7 @@ class FileChooser(VBox, ValueWidget):
                 grid_template_rows='auto auto',
                 grid_template_columns='60% 40%',
                 grid_template_areas='''
+                    'sourcelist sourcelist'
                     'pathlist {}'
                     'dircontent dircontent'
                     '''.format(('filename', 'pathlist')[self._show_only_dirs])
@@ -560,6 +561,7 @@ class FileChooser(VBox, ValueWidget):
             self._gb.layout.children.insert(1, self._filename)
 
         self._gb.layout.grid_template_areas = '''
+            'sourcelist sourcelist'
             'pathlist {}'
             'dircontent dircontent'
             '''.format(('filename', 'pathlist')[self._show_only_dirs])

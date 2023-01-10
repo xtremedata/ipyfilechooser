@@ -55,6 +55,14 @@ class FileChooser(VBox, ValueWidget):
         self._callback: Optional[Callable] = None
 
         # Widgets
+        self._sourcelist = Dropdown(
+            description="Choose Storage",
+            options=['local','AWS','Azure'],
+            layout=Layout(
+                width='auto',
+                grid_area='sourcelist'
+            )
+        )
         self._pathlist = Dropdown(
             description="",
             layout=Layout(
@@ -118,6 +126,7 @@ class FileChooser(VBox, ValueWidget):
         # Layout
         self._gb = GridBox(
             children=[
+                self._sourcelist,
                 self._pathlist,
                 self._filename,
                 self._dircontent

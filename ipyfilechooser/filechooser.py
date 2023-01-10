@@ -3,9 +3,18 @@ import warnings
 from typing import Optional, Sequence, Mapping, Callable
 from ipywidgets import Dropdown, Text, Select, Button, HTML
 from ipywidgets import Layout, GridBox, Box, HBox, VBox, ValueWidget
-from .errors import ParentPathError, InvalidFileNameError
+
+# Local Imports
+from .errors import ParentPathError, InvalidFileNameError, InvalidSourceError
 from .utils import get_subpaths, get_dir_contents, match_item, strip_parent_path
-from .utils import is_valid_filename, get_drive_letters, normalize_path, has_parent_path
+from .utils import \
+        is_valid_filename, \
+        get_drive_letters, \
+        normalize_path, \
+        has_parent_path
+from .utils_sources import \
+        SupportedSources, \
+        is_valid_source
 
 
 class FileChooser(VBox, ValueWidget):
@@ -19,6 +28,7 @@ class FileChooser(VBox, ValueWidget):
             path: str = os.getcwd(),
             filename: str = '',
             title: str = '',
+            source: SupportedSources = SupportedSources.Local,
             select_desc: str = 'Select',
             change_desc: str = 'Change',
             show_hidden: bool = False,
@@ -26,6 +36,7 @@ class FileChooser(VBox, ValueWidget):
             dir_icon: Optional[str] = '\U0001F4C1 ',
             dir_icon_append: bool = False,
             show_only_dirs: bool = False,
+            disable_source: bool = False,
             filter_pattern: Optional[Sequence[str]] = None,
             sandbox_path: Optional[str] = None,
             layout: Layout = Layout(width='500px'),
@@ -39,8 +50,13 @@ class FileChooser(VBox, ValueWidget):
         if not is_valid_filename(filename):
             raise InvalidFileNameError(filename)
 
+        # Verify the source is valid
+        if not is_valid_source(source):
+            raise InvalidSourceError(source)
+
         self._default_path = normalize_path(path)
         self._default_filename = filename
+        self._default_source = source
         self._selected_path: Optional[str] = None
         self._selected_filename: Optional[str] = None
         self._show_hidden = show_hidden
@@ -50,14 +66,17 @@ class FileChooser(VBox, ValueWidget):
         self._dir_icon = dir_icon
         self._dir_icon_append = dir_icon_append
         self._show_only_dirs = show_only_dirs
+        self._disable_source = disable_source
         self._filter_pattern = filter_pattern
         self._sandbox_path = normalize_path(sandbox_path) if sandbox_path is not None else None
         self._callback: Optional[Callable] = None
 
         # Widgets
         self._sourcelist = Dropdown(
-            description="Choose Storage",
-            options=['local','AWS','Azure'],
+            description="Choose Source Storage:",
+            options=SupportedSources.elements(),
+            value=self._default_source,
+            disabled=self._disable_source,
             layout=Layout(
                 width='auto',
                 grid_area='sourcelist'
@@ -107,6 +126,9 @@ class FileChooser(VBox, ValueWidget):
 
         if title == '':
             self._title.layout.display = 'none'
+
+        # Widgets' style settings
+        self._sourcelist.style.description_width = 'auto'
 
         # Widget observe handlers
         self._pathlist.observe(self._on_pathlist_select, names='value')
@@ -523,6 +545,21 @@ class FileChooser(VBox, ValueWidget):
         self._set_form_values(self._expand_path(self._pathlist.value), self._default_filename)
 
     @property
+    def default_source(self) -> str:
+        """Gets the default_source value."""
+        return self._default_source
+
+    @default_source.setter
+    def default_source(self, source: str) -> None:
+        """Sets the default_source."""
+        # Verify the source is valid and supported.
+        if not is_valid_source(source):
+            raise InvalidSourceError(source)
+
+        self._default_source = source
+        ### ToDo: self._set_form_values()
+
+    @property
     def sandbox_path(self) -> Optional[str]:
         """Get the sandbox_path."""
         return self._sandbox_path
@@ -567,6 +604,20 @@ class FileChooser(VBox, ValueWidget):
             '''.format(('filename', 'pathlist')[self._show_only_dirs])
 
         # Reset the dialog
+        self.reset()
+
+    @property
+    def disable_source(self) -> bool:
+        """Gets disable_source property value."""
+        return self._disable_source
+
+    @disable_source.setter
+    def disable_source(self, disable_source: bool) -> None:
+        """Sets disable_source property value."""
+        self._disable_source = disable_source
+
+        # Update widget layout
+        self._sourcelist.disabled = self._disable_source
         self.reset()
 
     @property

@@ -2,6 +2,9 @@
 import os
 from typing import Optional
 
+# Local Imports
+from .utils_sources import SupportedSources
+
 
 class ParentPathError(Exception):
     """ParentPathError class."""
@@ -32,4 +35,14 @@ class InvalidFileNameError(Exception):
     def __init__(self, filename: str, message: Optional[str] = None):
         self.filename = filename
         self.message = message or f'{filename} cannot contain {self.invalid_str}'
+        super().__init__(self.message)
+
+
+class InvalidSourceError(Exception):
+    """InvalidSourceError class."""
+    valid_str = SupportedSources.names()
+    
+    def __init__(self, source: SupportedSources, message: Optional[str] = None):
+        self.source = source
+        self.message = message or f'{source} is not supported/known, supported: Enum:{self.valid_str}'
         super().__init__(self.message)

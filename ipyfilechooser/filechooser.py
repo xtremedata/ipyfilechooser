@@ -1,5 +1,6 @@
 import os
 import warnings
+from enum import Enum
 from typing import Optional, Sequence, Mapping, Callable
 from ipywidgets import Dropdown, Text, Select, Button, HTML
 from ipywidgets import Layout, GridBox, Box, HBox, VBox, ValueWidget
@@ -14,7 +15,9 @@ from .utils import \
         has_parent_path
 from .utils_sources import \
         SupportedSources, \
-        is_valid_source
+        is_valid_source, \
+        req_access_cred, \
+        build_access_cred_widget
 
 
 class FileChooser(VBox, ValueWidget):
@@ -82,6 +85,10 @@ class FileChooser(VBox, ValueWidget):
                 grid_area='sourcelist'
             )
         )
+        self._access_cred = build_access_cred_widget(
+            self._default_source,
+            'access_cred'
+        )
         self._pathlist = Dropdown(
             description="",
             layout=Layout(
@@ -131,6 +138,10 @@ class FileChooser(VBox, ValueWidget):
         self._sourcelist.style.description_width = 'auto'
 
         # Widget observe handlers
+        if (self._disable_source):
+            self._sourcelist.unobserve(self._on_sourcelist_select, names='value')
+        else:
+            self._sourcelist.observe(self._on_sourcelist_select, names='value')
         self._pathlist.observe(self._on_pathlist_select, names='value')
         self._dircontent.observe(self._on_dircontent_select, names='value')
         self._filename.observe(self._on_filename_change, names='value')
@@ -145,27 +156,26 @@ class FileChooser(VBox, ValueWidget):
             layout=Layout(margin='0 0 0 1em')
         )
 
+        # All GridBox children with membership conditions
+        self._all_gb_children = {
+                self._sourcelist: lambda: True,
+                self._access_cred: lambda: req_access_cred(self._sourcelist.value),
+                self._pathlist: lambda: True,
+                self._filename: lambda: not self._show_only_dirs,
+                self._dircontent: lambda: True
+        }
+
         # Layout
         self._gb = GridBox(
-            children=[
-                self._sourcelist,
-                self._pathlist,
-                self._filename,
-                self._dircontent
-            ],
             layout=Layout(
                 display='none',
                 width='auto',
                 grid_gap='0px 0px',
                 grid_template_rows='auto auto',
                 grid_template_columns='60% 40%',
-                grid_template_areas='''
-                    'sourcelist sourcelist'
-                    'pathlist {}'
-                    'dircontent dircontent'
-                    '''.format(('filename', 'pathlist')[self._show_only_dirs])
             )
         )
+        self._update_gridbox()
 
         buttonbar = HBox(
             children=[
@@ -194,6 +204,33 @@ class FileChooser(VBox, ValueWidget):
             **kwargs
         )
 
+    def _update_gridbox(self) -> None:
+        """ Updates GridBox attributes based on user requests.
+            Changed attributes:
+            - children
+            - layout.template_areas
+        """
+        self._gb.children = [child for child,cond in self._all_gb_children.items() if cond()]
+        self._gb.layout.template_areas = "\n'sourcelist sourcelist'\n{access_cred}'pathlist {filename}'\n'dircontent dircontent'\n".format( \
+                    access_cred=('', "'access_cred access_cred'\n")[req_access_cred(self._sourcelist.value)], \
+                    filename=('filename', 'pathlist')[self._show_only_dirs])
+
+    def _update_access_cred(self, disable: bool) -> None:
+        """Disables/hides access credentials widgets."""
+        for child in self._access_cred.children:
+            child.layout.display = (None, 'none')[disable]
+            child.unobserve(self._on_access_cred_change, names='value')
+            child.disabled = disable
+        self._access_cred.layout.display = (None, 'none')[disable]
+        self._access_cred.disabled = disable
+
+    def _process_source_change(self) -> None:
+        """Processes storage source change."""
+        self._update_access_cred(req_access_cred(self._sourcelist.value))
+        self._update_gridbox()
+        # Reset the dialog
+        # self.refresh()
+
     def _set_form_values(self, path: str, filename: str) -> None:
         """Set the form values."""
         # Check if the path falls inside the configured sandbox path
@@ -202,6 +239,8 @@ class FileChooser(VBox, ValueWidget):
 
         # Disable triggers to prevent selecting an entry in the Select
         # box from automatically triggering a new event.
+        self._sourcelist.unobserve(self._on_sourcelist_select, names='value')
+        self._update_access_cred(True)
         self._pathlist.unobserve(self._on_pathlist_select, names='value')
         self._dircontent.unobserve(self._on_dircontent_select, names='value')
         self._filename.unobserve(self._on_filename_change, names='value')
@@ -305,9 +344,18 @@ class FileChooser(VBox, ValueWidget):
             warnings.warn(f'Permission denied for {path}', RuntimeWarning)
 
         # Reenable triggers
+        self._sourcelist.observe(self._on_sourcelist_select, names='value')
         self._pathlist.observe(self._on_pathlist_select, names='value')
         self._dircontent.observe(self._on_dircontent_select, names='value')
         self._filename.observe(self._on_filename_change, names='value')
+
+    def _on_sourcelist_select(self, change: Mapping[Enum, Enum]) -> None:
+        """Handles selecting a storage source."""
+        self._process_source_change()
+
+    def _on_access_cred_change(self, change: Mapping[Enum, Enum]) -> None:
+        """Handles changing storage source access credentials."""
+        pass
 
     def _on_pathlist_select(self, change: Mapping[str, str]) -> None:
         """Handle selecting a path entry."""
@@ -550,14 +598,14 @@ class FileChooser(VBox, ValueWidget):
         return self._default_source
 
     @default_source.setter
-    def default_source(self, source: str) -> None:
+    def default_source(self, source: Enum) -> None:
         """Sets the default_source."""
         # Verify the source is valid and supported.
         if not is_valid_source(source):
             raise InvalidSourceError(source)
 
         self._default_source = source
-        ### ToDo: self._set_form_values()
+        self._process_source_change()
 
     @property
     def sandbox_path(self) -> Optional[str]:
@@ -589,19 +637,7 @@ class FileChooser(VBox, ValueWidget):
         # Update widget layout
         self._filename.disabled = self._show_only_dirs
         self._filename.layout.display = (None, "none")[self._show_only_dirs]
-        self._gb.layout.children = [
-            self._pathlist,
-            self._dircontent
-        ]
-
-        if not self._show_only_dirs:
-            self._gb.layout.children.insert(1, self._filename)
-
-        self._gb.layout.grid_template_areas = '''
-            'sourcelist sourcelist'
-            'pathlist {}'
-            'dircontent dircontent'
-            '''.format(('filename', 'pathlist')[self._show_only_dirs])
+        self._update_gridbox()
 
         # Reset the dialog
         self.reset()
@@ -618,7 +654,11 @@ class FileChooser(VBox, ValueWidget):
 
         # Update widget layout
         self._sourcelist.disabled = self._disable_source
-        self.reset()
+        if (self._disable_source):
+            self._sourcelist.unobserve(self._on_sourcelist_select, names='value')
+        else:
+            self._sourcelist.observe(self._on_sourcelist_select, names='value')
+        #self.reset()
 
     @property
     def filter_pattern(self) -> Optional[Sequence[str]]:

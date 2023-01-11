@@ -208,10 +208,13 @@ class FileChooser(VBox, ValueWidget):
         """ Updates GridBox attributes based on user requests.
             Changed attributes:
             - children
-            - layout.template_areas
+            - layout.grid_template_areas
         """
         self._gb.children = [child for child,cond in self._all_gb_children.items() if cond()]
-        self._gb.layout.template_areas = "\n'sourcelist sourcelist'\n{access_cred}'pathlist {filename}'\n'dircontent dircontent'\n".format( \
+        self._gb.layout.grid_template_areas = \
+                "\n'sourcelist sourcelist'" \
+                "\n{access_cred}'pathlist {filename}'" \
+                "\n'dircontent dircontent'\n".format( \
                     access_cred=('', "'access_cred access_cred'\n")[req_access_cred(self._sourcelist.value)], \
                     filename=('filename', 'pathlist')[self._show_only_dirs])
 

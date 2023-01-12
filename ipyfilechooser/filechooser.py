@@ -221,6 +221,10 @@ class FileChooser(VBox, ValueWidget):
             - children
             - layout.grid_template_areas
         """
+        # disabling widget
+        self._gb.disabled = True
+        self._gb.layout.display = 'none'
+
         self._gb.children = [child_fun() for child_fun,cond_fun in self._all_gb_children.items() if cond_fun()]
         self._gb.layout.grid_template_areas = \
                 "\n'sourcelist sourcelist'" \
@@ -228,6 +232,9 @@ class FileChooser(VBox, ValueWidget):
                 "\n'dircontent dircontent'\n".format( \
                     access_cred=('', "'access_cred access_cred'\n")[req_access_cred(self._sourcelist.value)], \
                     filename=('filename', 'pathlist')[self._show_only_dirs])
+        # restoring view
+        self._gb.disabled = False
+        self._gb.layout.display = None
 
     def _update_access_cred(self, enable: Optional[bool] = None) -> None:
         """Disables/hides access credentials widgets."""

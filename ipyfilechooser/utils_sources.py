@@ -42,11 +42,13 @@ def get_access_cred_widgets(source: Enum) -> {}:
                 Text(
                     description="AWS Access Key ID:",
                     value='',
+                    placeholder='provide AWS access key ID',
                     style={'description_width': 'auto'}
                 ),
                 Password(
                     description="AWS Access Key Secret:",
                     value='',
+                    placeholder='provide AWS access key secret',
                     style={'description_width': 'auto'}
                 )
         ]
@@ -55,11 +57,13 @@ def get_access_cred_widgets(source: Enum) -> {}:
                 Text(
                     description="Azure Storage Account:",
                     value='',
+                    placeholder='provide Azure storage account name',
                     style={'description_width': 'auto'}
                 ),
                 Password(
                     description="Azure Storage Access Key:",
                     value='',
+                    placeholder='provide Azure storage account key',
                     style={'description_width': 'auto'}
                 )
         ]
@@ -68,6 +72,8 @@ def get_access_cred_widgets(source: Enum) -> {}:
 def build_access_cred_widget(source: Enum, area_name: str) -> VBox:
     """Builds proper access credentials widget for requested storage source."""
     return VBox(
+        description=f'{source.name} Access Credentials',
+        rows=2,
         children=get_access_cred_widgets(source),
         layout=Layout(
             width='auto',

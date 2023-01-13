@@ -73,7 +73,6 @@ def build_access_cred_widget(source: Enum, area_name: str) -> VBox:
     """Builds proper access credentials widget for requested storage source."""
     return VBox(
         description=f'{source.name} Access Credentials',
-        rows=2,
         children=get_access_cred_widgets(source),
         layout=Layout(
             width='auto',

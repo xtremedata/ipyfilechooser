@@ -7,8 +7,11 @@ from ipywidgets import Layout, GridBox, Box, HBox, VBox, ValueWidget
 
 # Local Imports
 from .errors import ParentPathError, InvalidFileNameError, InvalidSourceError
-from .utils import get_subpaths, get_dir_contents, match_item, strip_parent_path
 from .utils import \
+        get_subpaths,\
+        get_dir_contents,\
+        match_item,\
+        strip_parent_path, \
         is_valid_filename, \
         get_drive_letters, \
         normalize_path, \
@@ -18,6 +21,7 @@ from .utils_sources import \
         is_valid_source, \
         req_access_cred, \
         build_access_cred_widget
+from .utils_s3 import S3
 
 
 class FileChooser(VBox, ValueWidget):
@@ -138,7 +142,7 @@ class FileChooser(VBox, ValueWidget):
         self._sourcelist.style.description_width = 'auto'
 
         # Widget observe handlers
-        if (self._disable_source):
+        if self._disable_source:
             self._sourcelist.unobserve(self._on_sourcelist_select, names='value')
         else:
             self._sourcelist.observe(self._on_sourcelist_select, names='value')
@@ -187,7 +191,10 @@ class FileChooser(VBox, ValueWidget):
         )
 
         # Call setter to set initial form values
-        self._set_form_values(self._default_path, self._default_filename)
+        self._set_form_values( \
+                self._default_source, \
+                self._default_path, \
+                self._default_filename)
 
         # Use the defaults as the selected values
         if self._select_default:
@@ -225,7 +232,9 @@ class FileChooser(VBox, ValueWidget):
         self._gb.disabled = True
         self._gb.layout.display = 'none'
 
-        self._gb.children = [child_fun() for child_fun,cond_fun in self._all_gb_children.items() if cond_fun()]
+        self._gb.children = [child_fun() \
+                for child_fun,cond_fun in self._all_gb_children.items() \
+                if cond_fun()]
         self._gb.layout.grid_template_areas = \
                 "\n'sourcelist sourcelist'" \
                 "\n{access_cred}'pathlist {filename}'" \
@@ -235,6 +244,13 @@ class FileChooser(VBox, ValueWidget):
         # restoring view
         self._gb.disabled = False
         self._gb.layout.display = None
+
+    def _has_access_cred(self) -> bool:
+        """ Returns True if proper access credentials are provided.
+            Access Credentials widget has to be visible.
+        """
+        return self._access_cred.layout == None \
+                and not any(c.value for c in self._access_cred.children)
 
     def _update_access_cred(self, enable: Optional[bool] = None) -> None:
         """Disables/hides access credentials widgets."""
@@ -258,23 +274,33 @@ class FileChooser(VBox, ValueWidget):
             'access_cred'
         )
         self._update_gridbox()
+        self._clear_form_values()
         # Reset the dialog
         self.refresh()
 
-    def _set_form_values(self, path: str, filename: str) -> None:
-        """Set the form values."""
-        # Check if the path falls inside the configured sandbox path
-        if self._sandbox_path and not has_parent_path(path, self._sandbox_path):
-            raise ParentPathError(path, self._sandbox_path)
+    def _clear_form_values(self) -> None:
+        """ Clears values for widgets presenting directories and files on source change.
+        """
+        self._pathlist.options = []
+        self._filename.value = ''
+        self._dircontent.options = []
 
-        # Disable triggers to prevent selecting an entry in the Select
-        # box from automatically triggering a new event.
-        self._sourcelist.unobserve(self._on_sourcelist_select, names='value')
-        self._pathlist.unobserve(self._on_pathlist_select, names='value')
-        self._dircontent.unobserve(self._on_dircontent_select, names='value')
-        self._filename.unobserve(self._on_filename_change, names='value')
-        self._update_access_cred(enable=False)
+    def _set_form_values_aws(self, path: str, filename: str) -> None:
+        """Set the form values for the AWS storage."""
+        # Process only with provided credentials
+        if self._has_access_cred():
+            try:
+                s3 = S3()
+                s3.key_name = self._access_cred.children[0].value
+                s3.key_secret = self._access_cred.children[1].value
+                response = s3.client.list_buckets()
+                buckets = response['Buckets']
+                self._dicontent.options = buckets
+            except Exception as e:
+                warnings.warn("Failed to process S3 request")
 
+    def _set_form_values_local(self, path: str, filename: str) -> None:
+        """Set the form values for the local storage."""
         try:
             # Fail early if the folder can not be read
             _ = os.listdir(path)
@@ -373,6 +399,27 @@ class FileChooser(VBox, ValueWidget):
             self._dircontent.value = None
             warnings.warn(f'Permission denied for {path}', RuntimeWarning)
 
+    def _set_form_values(self, source: str, path: str, filename: str) -> None:
+        """Set the form values."""
+        # Check if the path falls inside the configured sandbox path
+        if self._sandbox_path and not has_parent_path(path, self._sandbox_path):
+            raise ParentPathError(path, self._sandbox_path)
+
+        # Disable triggers to prevent selecting an entry in the Select
+        # box from automatically triggering a new event.
+        self._sourcelist.unobserve(self._on_sourcelist_select, names='value')
+        self._pathlist.unobserve(self._on_pathlist_select, names='value')
+        self._dircontent.unobserve(self._on_dircontent_select, names='value')
+        self._filename.unobserve(self._on_filename_change, names='value')
+        self._update_access_cred(enable=False)
+
+        if self._sourcelist.value == SupportedSources.Local:
+            self._set_form_values_local(path, filename)
+        elif self._sourcelist.value == SupportedSources.AWS:
+            self._set_form_values_aws(path, filename)
+        else:
+            warnings.warn(f"Storage source '{source.name:.10}' not implemented/uknown")
+
         # Reenable triggers
         self._sourcelist.observe(self._on_sourcelist_select, names='value')
         self._pathlist.observe(self._on_pathlist_select, names='value')
@@ -390,7 +437,10 @@ class FileChooser(VBox, ValueWidget):
 
     def _on_pathlist_select(self, change: Mapping[str, str]) -> None:
         """Handle selecting a path entry."""
-        self._set_form_values(self._expand_path(change['new']), self._filename.value)
+        self._set_form_values( \
+                self._sourcelist.value, \
+                self._expand_path(change['new']), \
+                self._filename.value)
 
     def _on_dircontent_select(self, change: Mapping[str, str]) -> None:
         """Handle selecting a folder entry."""
@@ -407,11 +457,15 @@ class FileChooser(VBox, ValueWidget):
             path = self._expand_path(self._pathlist.value)
             filename = self._map_disp_to_name[change['new']]
 
-        self._set_form_values(path, filename)
+        self._set_form_values( \
+                self._sourcelist.value, \
+                path, filename)
 
     def _on_filename_change(self, change: Mapping[str, str]) -> None:
         """Handle filename field changes."""
-        self._set_form_values(self._expand_path(self._pathlist.value), change['new'])
+        self._set_form_values( \
+                self._sourcelist.value, \
+                self._expand_path(self._pathlist.value), change['new'])
 
     def _on_select_click(self, _b) -> None:
         """Handle select button clicks."""
@@ -444,7 +498,9 @@ class FileChooser(VBox, ValueWidget):
             path = self._default_path
             filename = self._default_filename
 
-        self._set_form_values(path, filename)
+        self._set_form_values( \
+                self._sourcelist.value, \
+                path, filename)
 
     def _apply_selection(self) -> None:
         """Close the dialog and apply the selection."""
@@ -472,7 +528,8 @@ class FileChooser(VBox, ValueWidget):
     def _expand_path(self, path) -> str:
         """Calculate the full path using the sandbox path."""
         if self._sandbox_path:
-            path = os.path.join(self._sandbox_path, path.lstrip(os.sep))
+            path = self._default_path if not path \
+                    else os.path.join(self._sandbox_path, path.lstrip(os.sep))
 
         return path
 
@@ -520,7 +577,9 @@ class FileChooser(VBox, ValueWidget):
         if filename is not None:
             self._default_filename = filename
 
-        self._set_form_values(self._default_path, self._default_filename)
+        self._set_form_values( \
+                self._sourcelist.value, \
+                self._default_path, self._default_filename)
 
         # Use the defaults as the selected values
         if self._select_default:
@@ -528,7 +587,9 @@ class FileChooser(VBox, ValueWidget):
 
     def refresh(self) -> None:
         """Re-render the form."""
-        self._set_form_values(self._expand_path(self._pathlist.value), self._filename.value)
+        self._set_form_values( \
+                self._sourcelist.value, \
+                self._expand_path(self._pathlist.value), self._filename.value)
 
     @property
     def show_hidden(self) -> bool:
@@ -606,7 +667,10 @@ class FileChooser(VBox, ValueWidget):
             raise ParentPathError(path, self._sandbox_path)
 
         self._default_path = normalize_path(path)
-        self._set_form_values(self._default_path, self._filename.value)
+        self._set_form_values( \
+                self._sourcelist.value, \
+                self._default_path, \
+                self._filename.value)
 
     @property
     def default_filename(self) -> str:
@@ -621,7 +685,10 @@ class FileChooser(VBox, ValueWidget):
             raise InvalidFileNameError(filename)
 
         self._default_filename = filename
-        self._set_form_values(self._expand_path(self._pathlist.value), self._default_filename)
+        self._set_form_values( \
+                self._sourcelist.value, \
+                self._expand_path(self._pathlist.value), \
+                self._default_filename)
 
     @property
     def default_source(self) -> str:
@@ -685,11 +752,10 @@ class FileChooser(VBox, ValueWidget):
 
         # Update widget layout
         self._sourcelist.disabled = self._disable_source
-        if (self._disable_source):
+        if self._disable_source:
             self._sourcelist.unobserve(self._on_sourcelist_select, names='value')
         else:
             self._sourcelist.observe(self._on_sourcelist_select, names='value')
-        #self.reset()
 
     @property
     def filter_pattern(self) -> Optional[Sequence[str]]:

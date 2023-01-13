@@ -2,7 +2,8 @@
 
 
 from os import path
-from urllib.parse import unquote, urlunparse, ParseResult
+from warnings import *
+from urllib.parse import unquote, urlunparse, urlparse, ParseResult
 from botocore.exceptions import HTTPClientError, ClientError
 from boto3 import client, Session
 
@@ -43,8 +44,6 @@ class S3:
                 query=None, \
                 fragment=None))
 
-
-
     @classmethod
     def norm_path(cls, path):
         """ Normalizes pgadmin path for s3 path.
@@ -56,13 +55,11 @@ class S3:
                 spath = spath[len(cls.PG_PFX):]
         return spath
 
-
     @classmethod
     def is_dir(cls, s3key):
         """ Returns true if path is a directory.
         """
         return s3key.endswith(path.sep)
-
 
     @classmethod
     def is_child(cls, o1, o2_path):
@@ -76,7 +73,6 @@ class S3:
                 else (key.find(path.sep) == -1 or key[-1] == path.sep) if not o2_path \
                 else False
 
-
     @classmethod
     def s3obj_to_s3dict(cls, s3obj):
         """ Converts boto3 object to dictionary.
@@ -86,6 +82,17 @@ class S3:
                 'LastModified': s3obj.last_modified, \
                 'Size': s3obj.content_length}
 
+    @classmethod
+    def is_bucket_of(cls, s3_url: str, buckets: []) -> bool:
+        """ Returns True if requested url is s3 scheme or not defined and belongs to any provided bucket.
+        """
+        if s3_url and buckets:
+            s3_parsed = urlparse(s3_url)
+            return False if s3_parsed.scheme and s3_parsed.scheme is not cls.NAME \
+                    else s3_parsed.netloc in buckets if s3_parsed.netloc \
+                    else s3_parsed.path in buckets if s3_parsed.path \
+                    else False
+        return False
 
 
     def __init__(self, *args, **kw):
@@ -97,14 +104,19 @@ class S3:
         self._key_secret = None
 
 
-
     @property
     def key_name(self):
         return self._key_name
+    @key_name.setter
+    def key_name(self, key_name):
+        self._key_name = key_name
     
     @property
     def key_secret(self):
         return self._key_secret
+    @key_secret.setter
+    def key_secret(self, key_secret):
+        self._key_secret = key_secret
 
     @property
     def client(self):
@@ -161,7 +173,31 @@ class S3:
             if e.response['ResponseMetadata']['HTTPStatusCode'] == 404:
                 return False
             else:
-                raise
+                warnings.warn(f"Failed to process AWS S3 request: {e}")
 
         else:
             return True
+
+
+    def get_buckets(self):
+        """ Returns available buckets' names.
+        """
+
+        res = S3Res(self.client.list_buckets())
+        return res.get_buckets_names()
+
+
+
+class S3Res:
+    """ Represents S3 client response.
+    """
+
+    def __init__(self, res):
+        self._res = res
+
+
+    def get_buckets_names(self):
+        try:
+            return [b['Name'] for b in self._res['Buckets']]
+        except KeyError:
+            warnings.warn("Invalid response")

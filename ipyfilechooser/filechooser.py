@@ -77,6 +77,9 @@ class FileChooser(VBox, ValueWidget):
         self._filter_pattern = filter_pattern
         self._sandbox_path = normalize_path(sandbox_path) if sandbox_path is not None else None
         self._callback: Optional[Callable] = None
+        self._local = None # A placeholder to move local paths/status into a separate object
+        self._s3 = None
+        self._azure = None
 
         # Widgets
         self._sourcelist = Dropdown(
@@ -142,10 +145,7 @@ class FileChooser(VBox, ValueWidget):
         self._sourcelist.style.description_width = 'auto'
 
         # Widget observe handlers
-        if self._disable_source:
-            self._sourcelist.unobserve(self._on_sourcelist_select, names='value')
-        else:
-            self._sourcelist.observe(self._on_sourcelist_select, names='value')
+        self._observe_sourcelist()
         self._pathlist.observe(self._on_pathlist_select, names='value')
         self._dircontent.observe(self._on_dircontent_select, names='value')
         self._filename.observe(self._on_filename_change, names='value')
@@ -249,34 +249,61 @@ class FileChooser(VBox, ValueWidget):
         """ Returns True if proper access credentials are provided.
             Access Credentials widget has to be visible.
         """
-        return self._access_cred.layout == None \
-                and not any(c.value for c in self._access_cred.children)
+        return self._access_cred.layout.display == None \
+                and all(c.value for c in self._access_cred.children)
 
-    def _update_access_cred(self, enable: Optional[bool] = None) -> None:
-        """Disables/hides access credentials widgets."""
+    def _observe_sourcelist(self, enable: Optional[bool] = True) -> None:
+        if self._disable_source:
+            pass
+        elif enable:
+            self._sourcelist.observe(self._on_sourcelist_select, names='value')
+        else:
+            self._sourcelist.unobserve(self._on_sourcelist_select, names='value')
+
+    def _show_access_cred(self, enable: Optional[bool] = None) -> None:
+        """ Disables(hides)/enables(shows) access credentials widgets.
+            All widgets are activates/deactivated as well.
+        """
         if enable is None:
             enable = req_access_cred(self._sourcelist.value)
         disable = not enable
         for child in self._access_cred.children:
             child.layout.display = (None, 'none')[disable]
+        self._access_cred.layout.display = (None, 'none')[disable]
+        self._observe_access_cred(enable)
+
+    def _observe_access_cred(self, enable: Optional[bool] = None) -> None:
+        """Activates(observes)/deactivates(unobservs) access credentials widgets."""
+        if enable is None:
+            enable = req_access_cred(self._sourcelist.value)
+        disable = not enable
+        for child in self._access_cred.children:
             if enable:
                 child.observe(self._on_access_cred_change, names='value')
             else:
                 child.unobserve(self._on_access_cred_change, names='value')
             child.disabled = disable
-        self._access_cred.layout.display = (None, 'none')[disable]
         self._access_cred.disabled = disable
 
     def _process_source_change(self) -> None:
         """Processes storage source change."""
+        self._show_access_cred(False)
         self._access_cred = build_access_cred_widget(
             self._sourcelist.value,
             'access_cred'
         )
+        self._show_access_cred(True)
         self._update_gridbox()
         self._clear_form_values()
         # Reset the dialog
         self.refresh()
+
+    def _init_s3(self) -> None:
+        """ Creates/initializes the S3 instance.
+        """
+        self._s3 = S3()
+        self._s3.key_name = self._access_cred.children[0].value
+        self._s3.key_secret = self._access_cred.children[1].value
 
     def _clear_form_values(self) -> None:
         """ Clears values for widgets presenting directories and files on source change.
@@ -289,18 +316,32 @@ class FileChooser(VBox, ValueWidget):
         """Set the form values for the AWS storage."""
         # Process only with provided credentials
         if self._has_access_cred():
-            try:
-                s3 = S3()
-                s3.key_name = self._access_cred.children[0].value
-                s3.key_secret = self._access_cred.children[1].value
-                response = s3.client.list_buckets()
-                buckets = response['Buckets']
-                self._dicontent.options = buckets
-            except Exception as e:
-                warnings.warn("Failed to process S3 request")
+            # Fail early - test connection
+            # ... ToDo ...
+
+            # Preps
+            if self._show_only_dirs:
+                filename = ''
+
+            # Fetch buckets
+            if not self._s3:
+                self._init_s3()
+
+            if not path:
+                self._pathlist.options = self._s3.get_buckets()
+                self._dircontent.options = []
+                if self._sandbox_path:
+                    if self._s3.is_bucket_of(self._sandbox_path, self._pathlist.options):
+                        self._pathlist.value = self._sandbox_path
+            else:
+                pass
 
     def _set_form_values_local(self, path: str, filename: str) -> None:
         """Set the form values for the local storage."""
+        # Check if the path falls inside the configured sandbox path
+        if self._sandbox_path and not has_parent_path(path, self._sandbox_path):
+            raise ParentPathError(path, self._sandbox_path)
+
         try:
             # Fail early if the folder can not be read
             _ = os.listdir(path)
@@ -401,17 +442,13 @@ class FileChooser(VBox, ValueWidget):
 
     def _set_form_values(self, source: str, path: str, filename: str) -> None:
         """Set the form values."""
-        # Check if the path falls inside the configured sandbox path
-        if self._sandbox_path and not has_parent_path(path, self._sandbox_path):
-            raise ParentPathError(path, self._sandbox_path)
-
         # Disable triggers to prevent selecting an entry in the Select
         # box from automatically triggering a new event.
-        self._sourcelist.unobserve(self._on_sourcelist_select, names='value')
+        self._observe_sourcelist(enable=False)
         self._pathlist.unobserve(self._on_pathlist_select, names='value')
         self._dircontent.unobserve(self._on_dircontent_select, names='value')
         self._filename.unobserve(self._on_filename_change, names='value')
-        self._update_access_cred(enable=False)
+        self._observe_access_cred(enable=False)
 
         if self._sourcelist.value == SupportedSources.Local:
             self._set_form_values_local(path, filename)
@@ -421,11 +458,11 @@ class FileChooser(VBox, ValueWidget):
             warnings.warn(f"Storage source '{source.name:.10}' not implemented/uknown")
 
         # Reenable triggers
-        self._sourcelist.observe(self._on_sourcelist_select, names='value')
+        self._observe_sourcelist()
         self._pathlist.observe(self._on_pathlist_select, names='value')
         self._dircontent.observe(self._on_dircontent_select, names='value')
         self._filename.observe(self._on_filename_change, names='value')
-        self._update_access_cred()
+        self._observe_access_cred()
 
     def _on_sourcelist_select(self, change: Mapping[Enum, Enum]) -> None:
         """Handles selecting a storage source."""
@@ -433,7 +470,11 @@ class FileChooser(VBox, ValueWidget):
 
     def _on_access_cred_change(self, change: Mapping[Enum, Enum]) -> None:
         """Handles changing storage source access credentials."""
-        pass
+        if self._has_access_cred():
+            self._set_form_values( \
+                    self._sourcelist.value, \
+                    None, \
+                    None)
 
     def _on_pathlist_select(self, change: Mapping[str, str]) -> None:
         """Handle selecting a path entry."""
@@ -459,13 +500,15 @@ class FileChooser(VBox, ValueWidget):
 
         self._set_form_values( \
                 self._sourcelist.value, \
-                path, filename)
+                path, \
+                filename)
 
     def _on_filename_change(self, change: Mapping[str, str]) -> None:
         """Handle filename field changes."""
         self._set_form_values( \
                 self._sourcelist.value, \
-                self._expand_path(self._pathlist.value), change['new'])
+                self._expand_path(self._pathlist.value), \
+                change['new'])
 
     def _on_select_click(self, _b) -> None:
         """Handle select button clicks."""
@@ -500,7 +543,8 @@ class FileChooser(VBox, ValueWidget):
 
         self._set_form_values( \
                 self._sourcelist.value, \
-                path, filename)
+                path, \
+                filename)
 
     def _apply_selection(self) -> None:
         """Close the dialog and apply the selection."""
@@ -579,7 +623,8 @@ class FileChooser(VBox, ValueWidget):
 
         self._set_form_values( \
                 self._sourcelist.value, \
-                self._default_path, self._default_filename)
+                self._default_path, \
+                self._default_filename)
 
         # Use the defaults as the selected values
         if self._select_default:
@@ -589,7 +634,8 @@ class FileChooser(VBox, ValueWidget):
         """Re-render the form."""
         self._set_form_values( \
                 self._sourcelist.value, \
-                self._expand_path(self._pathlist.value), self._filename.value)
+                self._expand_path(self._pathlist.value), \
+                self._filename.value)
 
     @property
     def show_hidden(self) -> bool:
@@ -748,14 +794,10 @@ class FileChooser(VBox, ValueWidget):
     @disable_source.setter
     def disable_source(self, disable_source: bool) -> None:
         """Sets disable_source property value."""
+        # Unobserve widget layout
+        self._observe_sourcelist(enable=False)
         self._disable_source = disable_source
-
-        # Update widget layout
         self._sourcelist.disabled = self._disable_source
-        if self._disable_source:
-            self._sourcelist.unobserve(self._on_sourcelist_select, names='value')
-        else:
-            self._sourcelist.observe(self._on_sourcelist_select, names='value')
 
     @property
     def filter_pattern(self) -> Optional[Sequence[str]]:

@@ -80,7 +80,7 @@ class FileChooser(VBox, ValueWidget):
 
         # Widgets
         self._sourcelist = Dropdown(
-            description="Choose Source Storage:",
+            description="Select Source Storage:",
             options=SupportedSources.elements(),
             value=self._default_source,
             disabled=self._disable_source,
@@ -175,7 +175,7 @@ class FileChooser(VBox, ValueWidget):
                 display='none',
                 width='auto',
                 grid_gap='0px 0px',
-                grid_template_rows='auto auto',
+                grid_template_rows='auto auto auto auto',
                 grid_template_columns='60% 40%',
             )
         )

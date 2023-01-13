@@ -31,6 +31,7 @@ setup(
         'Intended Audience :: Developers',
     ],
     install_requires=[
-        'ipywidgets'
+        'ipywidgets',
+        'boto3'
     ]
 )

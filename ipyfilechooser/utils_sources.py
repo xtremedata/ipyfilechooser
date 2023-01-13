@@ -33,7 +33,15 @@ def req_access_cred(source: Enum) -> bool:
     """Returns True if requested source requires access credentials."""
     return False if source == SupportedSources.Local else True
 
-def get_access_cred_widgets(source: Enum) -> {}:
+def get_access_cred_layout(source: Enum, area_name: str) -> Layout:
+    """Creates and returns a default layout for access credentials widgets."""
+    return Layout(
+            width='auto',
+            grid_area=area_name,
+            display=(None, "none")[req_access_cred(source)]
+        )
+
+def get_access_cred_widgets(source: Enum) -> []:
     """Returns template for access credentials for the requested source."""
     if source == SupportedSources.Local:
         return ()
@@ -43,13 +51,15 @@ def get_access_cred_widgets(source: Enum) -> {}:
                     description="AWS Access Key ID:",
                     value='',
                     placeholder='provide AWS access key ID',
-                    style={'description_width': 'auto'}
+                    style={'description_width': 'auto'},
+                    layout=get_access_cred_layout(source, 'object')
                 ),
                 Password(
                     description="AWS Access Key Secret:",
                     value='',
                     placeholder='provide AWS access key secret',
-                    style={'description_width': 'auto'}
+                    style={'description_width': 'auto'},
+                    layout=get_access_cred_layout(source, 'secret')
                 )
         ]
     if source == SupportedSources.Azure:
@@ -58,13 +68,15 @@ def get_access_cred_widgets(source: Enum) -> {}:
                     description="Azure Storage Account:",
                     value='',
                     placeholder='provide Azure storage account name',
-                    style={'description_width': 'auto'}
+                    style={'description_width': 'auto'},
+                    layout=get_access_cred_layout(source, 'object')
                 ),
                 Password(
                     description="Azure Storage Access Key:",
                     value='',
                     placeholder='provide Azure storage account key',
-                    style={'description_width': 'auto'}
+                    style={'description_width': 'auto'},
+                    layout=get_access_cred_layout(source, 'secret')
                 )
         ]
     return ()
@@ -74,9 +86,5 @@ def build_access_cred_widget(source: Enum, area_name: str) -> VBox:
     return VBox(
         description=f'{source.name} Access Credentials',
         children=get_access_cred_widgets(source),
-        layout=Layout(
-            width='auto',
-            grid_area=area_name,
-            display=(None, "none")[req_access_cred(source)]
-        )
+        layout=get_access_cred_layout(source, area_name)
     )

@@ -2,6 +2,7 @@
 
 
 from os import path
+from typing import Union
 from warnings import *
 from urllib.parse import unquote, urlunparse, urlparse, ParseResult
 from botocore.exceptions import HTTPClientError, ClientError
@@ -45,12 +46,12 @@ class S3:
                 fragment=None))
 
     @classmethod
-    def norm_path(cls, path):
+    def norm_path(cls, path2norm):
         """ Normalizes pgadmin path for s3 path.
         """
         spath = None
-        if path:
-            spath = unquote(path).encode('utf-8').decode('utf-8')
+        if path2norm:
+            spath = unquote(path2norm).encode('utf-8').decode('utf-8')
             if spath.startswith(cls.PG_PFX):
                 spath = spath[len(cls.PG_PFX):]
         return spath
@@ -83,15 +84,32 @@ class S3:
                 'Size': s3obj.content_length}
 
     @classmethod
-    def is_bucket_of(cls, s3_url: str, buckets: []) -> bool:
-        """ Returns True if requested url is s3 scheme or not defined and belongs to any provided bucket.
+    def parse_s3url(cls, s3_url: str) -> (Union[str,None], Union[str,None]):
+        """ Parses s3 url regardless if prefixed with scheme.
+            Returns (None, None) if not s3 scheme.
         """
-        if s3_url and buckets:
-            s3_parsed = urlparse(s3_url)
-            return False if s3_parsed.scheme and s3_parsed.scheme is not cls.NAME \
-                    else s3_parsed.netloc in buckets if s3_parsed.netloc \
-                    else s3_parsed.path in buckets if s3_parsed.path \
-                    else False
+        if not s3_url:
+            return (None, None)
+
+        s3_parsed = urlparse(s3_url)
+        return (None, None) if s3_parsed.scheme and s3_parsed.scheme is not cls.NAME \
+                else (s3_parsed.netloc, s3_parsed.path) if s3_parsed.netloc \
+                else (s3_parsed.path, '') if s3_parsed.path and path.sep not in s3_parsed.path \
+                else path.normpath(s3_parsed.path).split(path.sep,1) if s3_parsed.path \
+                else ('', '')
+
+    @classmethod
+    def is_bucket_of(cls, s3_url: str, buckets: []) -> bool:
+        """ Returns True if requested url is s3 scheme or not defined and belongs to any provided buckets.
+        """
+        bucket, obj_path = cls.parse_s3url(s3_url)
+        return bucket and bucket in buckets
+
+    @classmethod
+    def is_object_of(cls, s3_url: str, objects: []) -> bool:
+        """ Returns True if requested url is s3 scheme or not defined and belongs to any provided container.
+            ToDo!
+        """
         return False
 
 
@@ -179,12 +197,19 @@ class S3:
             return True
 
 
-    def get_buckets(self):
+    def get_buckets(self) -> []:
         """ Returns available buckets' names.
         """
-
         res = S3Res(self.client.list_buckets())
         return res.get_buckets_names()
+
+    def get_objects(self, s3_url: str) -> []:
+        """ Returns list of objects for S3 path.
+        """
+        bucket, obj_path = self.parse_s3url(s3_url)
+        res = S3Res(self.client.list_objects_v2(Bucket=bucket, Prefix=obj_path))
+        return res.get_objects_names()
+
 
 
 
@@ -196,8 +221,16 @@ class S3Res:
         self._res = res
 
 
-    def get_buckets_names(self):
+    def get_buckets_names(self) -> Union[[],None]:
         try:
             return [b['Name'] for b in self._res['Buckets']]
         except KeyError:
             warnings.warn("Invalid response")
+            return None
+
+    def get_objects_names(self) -> Union[[],None]:
+        try:
+            return [o['Key'] for o in self._res['Contents']]
+        except KeyError:
+            warnings.warn("Invalid response")
+            return None

@@ -334,7 +334,10 @@ class FileChooser(VBox, ValueWidget):
                     if self._s3.is_bucket_of(self._sandbox_path, self._pathlist.options):
                         self._pathlist.value = self._sandbox_path
             else:
-                pass
+                self._dircontent.options = self._s3.get_objects(self._pathlist.value)
+                if self._sandbox_path:
+                    if self._s3.is_object_of(self._sandbox_path, self._dircontent.options):
+                        self._filename = os.path.basename(self._sandbox_path)
 
     def _set_form_values_local(self, path: str, filename: str) -> None:
         """Set the form values for the local storage."""

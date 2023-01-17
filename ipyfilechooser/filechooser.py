@@ -486,7 +486,7 @@ class FileChooser(VBox, ValueWidget):
                 self._expand_path(change['new']), \
                 self._filename.value)
 
-    def _on_dircontent_select(self, change: Mapping[str, str]) -> None:
+    def _on_dircontent_select_local(self, change: Mapping[str, str]) -> None:
         """Handle selecting a folder entry."""
         new_path = os.path.realpath(os.path.join(
             self._expand_path(self._pathlist.value),
@@ -505,6 +505,29 @@ class FileChooser(VBox, ValueWidget):
                 self._sourcelist.value, \
                 path, \
                 filename)
+
+    def _on_dircontent_select_aws(self, change: Mapping[str, str]) -> None:
+        print("old:", change['old'])
+        print("new:", change['new'])
+        new_path = os.path.join(self._pathlist.value, change['new'])
+
+        if S3.is_dir(new_path):
+            path = new_path
+            filename = self._filename.value
+        else:
+            path = self._pathlist.value
+            filename = change['new']
+
+        self._set_form_values( \
+                self._sourcelist.value, \
+                path, \
+                filename)
+
+    def _on_dircontent_select(self, change: Mapping[str, str]) -> None:
+        if self._sourcelist.value == SupportedSources.Local:
+            self._on_dircontent_select_local(change)
+        elif self._sourcelist.value == SupportedSources.AWS:
+            self._on_dircontent_select_aws(change)
 
     def _on_filename_change(self, change: Mapping[str, str]) -> None:
         """Handle filename field changes."""

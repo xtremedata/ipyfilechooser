@@ -3,7 +3,7 @@
 
 from os import path
 from typing import Union
-from warnings import *
+import warnings
 from urllib.parse import unquote, urlunparse, urlparse, ParseResult
 from botocore.exceptions import HTTPClientError, ClientError
 from boto3 import client, Session
@@ -221,14 +221,14 @@ class S3Res:
         self._res = res
 
 
-    def get_buckets_names(self) -> Union[[],None]:
+    def get_buckets_names(self) -> Union[list,None]:
         try:
             return [b['Name'] for b in self._res['Buckets']]
         except KeyError:
             warnings.warn("Invalid response")
             return None
 
-    def get_objects_names(self) -> Union[[],None]:
+    def get_objects_names(self) -> Union[list,None]:
         try:
             return [o['Key'] for o in self._res['Contents']]
         except KeyError:

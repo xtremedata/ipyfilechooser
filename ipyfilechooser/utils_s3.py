@@ -11,7 +11,7 @@ from boto3 import client, Session
 
 
 
-class S3:
+class S3: # pylint: disable=too-many-public-methods
     """ S3 access object.
     """
 
@@ -63,15 +63,15 @@ class S3:
         return s3key.endswith(path.sep)
 
     @classmethod
-    def is_child(cls, o1, o2_path):
-        """ Returns True if o1 is child of o2.
+    def is_child(cls, s3obj1, s3obj2):
+        """ Returns True if s3obj1 is child of s3obj2.
         """
-        key = o1['Key'] if isinstance(o1, dict) \
-                else o1 if isinstance(o1, str) \
-                else o1.key if o1 \
+        key = s3obj1['Key'] if isinstance(s3obj1, dict) \
+                else s3obj1 if isinstance(s3obj1, str) \
+                else s3obj1.key if s3obj1 \
                 else ''
-        return key.startswith(o2_path) and len(key) != len(o2_path) if key and o2_path \
-                else (key.find(path.sep) == -1 or key[-1] == path.sep) if not o2_path \
+        return key.startswith(s3obj2) and len(key) != len(s3obj2) if key and s3obj2 \
+                else (key.find(path.sep) == -1 or key[-1] == path.sep) if not s3obj2 \
                 else False
 
     @classmethod
@@ -100,14 +100,16 @@ class S3:
 
     @classmethod
     def is_bucket_of(cls, s3_url: str, buckets: []) -> bool:
-        """ Returns True if requested url is s3 scheme or not defined and belongs to any provided buckets.
+        """ Returns True if requested url is s3 scheme or not defined and
+            belongs to any provided buckets.
         """
-        bucket, obj_path = cls.parse_s3url(s3_url)
+        bucket, _ = cls.parse_s3url(s3_url)
         return bucket and bucket in buckets
 
     @classmethod
-    def is_object_of(cls, s3_url: str, objects: []) -> bool:
-        """ Returns True if requested url is s3 scheme or not defined and belongs to any provided container.
+    def is_object_of(cls, s3_url: str, objects: []) -> bool: # pylint: disable=unused-argument
+        """ Returns True if requested url is s3 scheme or not defined and
+            belongs to any provided container.
             ToDo!
         """
         return False
@@ -124,22 +126,27 @@ class S3:
 
     @property
     def key_name(self):
+        """Property key_name getter."""
         return self._key_name
     @key_name.setter
     def key_name(self, key_name):
+        """Property key_name setter."""
         self._key_name = key_name
-    
+
     @property
     def key_secret(self):
+        """Property getter."""
         return self._key_secret
     @key_secret.setter
     def key_secret(self, key_secret):
+        """Property setter."""
         self._key_secret = key_secret
 
     @property
     def client(self):
+        """Returns S3 client (creates if not available)."""
         if not self._client:
-            self._client = client('s3') if not self.has_authentication() \
+            self._client = client('s3') if not self.has_cred() \
                     else client('s3', \
                     aws_access_key_id=self.key_name, \
                     aws_secret_access_key=self.key_secret)
@@ -147,8 +154,9 @@ class S3:
 
     @property
     def session(self):
+        """Returns S3 session (creates if not available)."""
         if not self._session:
-            self._session = Session() if not self.has_authentication() \
+            self._session = Session() if not self.has_cred() \
                     else Session(\
                     aws_access_key_id=self.key_name, \
                     aws_secret_access_key=self.key_secret)
@@ -156,6 +164,7 @@ class S3:
 
     @property
     def resource(self):
+        """Returns S3 resource (creates from session if not available)."""
         if not self._resource:
             self._resource = self.session.resource('s3')
         return self._resource
@@ -178,20 +187,39 @@ class S3:
         self._resource = None
 
 
-    def has_authentication(self):
+    def has_cred(self):
+        """Returns true when authentication is defined."""
         return self.key_name and self.key_secret
 
 
-    def exists(self, bucket, obj):
+    def validate_cred(self):
+        """Returns true when authentication is valid."""
         try:
-            o = self.resource.Object(bucket, obj)
-            o.load()
+            sts = client('sts')
+            sts = client('sts') if not self.has_cred() \
+                    else client('sts', \
+                    aws_access_key_id=self.key_name, \
+                    aws_secret_access_key=self.key_secret)
+            sts.get_caller_identity()
+        except ClientError: # pylint: disable=bare-except
+            return False
+        else:
+            return True
 
-        except (HTTPClientError, ClientError) as e:
-            if e.response['ResponseMetadata']['HTTPStatusCode'] == 404:
+
+
+    def exists(self, bucket, obj):
+        """Returns true when object present in a bucket."""
+        try:
+            s3obj = self.resource.Object(bucket, obj)
+            s3obj.load()
+
+        except (HTTPClientError, ClientError) as ex:
+            if ex.response['ResponseMetadata']['HTTPStatusCode'] == 404:
                 return False
-            else:
-                warnings.warn(f"Failed to process AWS S3 request: {e}")
+
+            warnings.warn(f"Failed to process AWS S3 request: {ex}")
+            return False
 
         else:
             return True
@@ -201,12 +229,15 @@ class S3:
         """ Returns available buckets' names.
         """
         res = S3Res(self.client.list_buckets())
-        return res.get_buckets_names()
+        return [S3Obj.make_obj(name) for name in res.get_buckets_names()]
 
-    def get_objects(self, s3_url: str) -> []:
+    def get_objects(self, s3_obj: str) -> []:
         """ Returns list of objects for S3 path.
         """
-        bucket, obj_path = self.parse_s3url(s3_url)
+        if isinstance(s3_obj, str):
+            bucket, obj_path = self.parse_s3url(s3_obj)
+        else:
+            bucket, obj_path = s3_obj.get_s3_call_data()
         res = S3Res(self.client.list_objects_v2(Bucket=bucket, Prefix=obj_path))
         return res.get_objects_names()
 
@@ -222,6 +253,8 @@ class S3Res:
 
 
     def get_buckets_names(self) -> Union[list,None]:
+        """ Returns bucket names from the response.
+        """
         try:
             return [b['Name'] for b in self._res['Buckets']]
         except KeyError:
@@ -229,8 +262,114 @@ class S3Res:
             return None
 
     def get_objects_names(self) -> Union[list,None]:
+        """ Returns objects names from the response.
+        """
         try:
             return [o['Key'] for o in self._res['Contents']]
         except KeyError:
             warnings.warn("Invalid response")
             return None
+
+
+
+
+class S3Obj:
+    """ Represents S3 object (path).
+    """
+
+    ROOT_STR = ".."
+    SHORT_STR = "..."
+
+
+    @classmethod
+    def make_root(cls, parent=None):
+        """ Creates root like S3 object (a reference to it's parent).
+        """
+        return cls(None, parent, root=True)
+
+    @classmethod
+    def make_obj(cls, name, parent=None):
+        """ Creates either directory or a leaf element S3 object.
+        """
+        return cls.make_dir(name, parent) if S3.is_dir(name) else cls.make_elm(name, parent)
+
+    @classmethod
+    def make_dir(cls, name, parent=None):
+        """ Creates directory like S3 object.
+        """
+        s3dir = cls(name, parent)
+        s3dir._children = []
+        s3dir._children.append(cls.make_root(s3dir))
+        return s3dir
+
+    @classmethod
+    def make_elm(cls, name, parent):
+        """ Creates element like S3 object.
+        """
+        return cls(name, parent)
+
+
+    def __init__(self, name, parent=None, root=False):
+        self._parent = parent
+        self._name = name
+        self._root = root
+        self._children = None
+        self._fetched = False
+
+
+    def __str__(self):
+        return self.ROOT_STR if self._root else self._name
+
+    def __eq__(self, obj):
+        return self._name == (obj.name if isinstance(obj, S3Obj) \
+                else obj if isinstance(obj, str) \
+                else str(obj))
+
+
+    def is_leaf(self):
+        """ Returns true if leaf."""
+        return self._children is None
+
+    def is_dir(self):
+        """Returns true if directory."""
+        return self._children is not None
+
+    def get_bucket(self):
+        """Recursively traces root parent for S3 bucket name."""
+        return self.name if self._parent is None else self._parent.get_bucket()
+
+    def get_s3_path(self):
+        """Recursively collects S3 path excluding bucket name."""
+        return self._parent.name() + self._name if self._parent is not None else ""
+
+    def get_s3_call_data(self):
+        """Returns tuple (bucket, s3_path) to fetch object details."""
+        bucket = self.get_bucket()
+        s3_path = self.get_s3_path()
+        return (bucket, s3_path)
+
+    def fetch_children(self, s3):
+        """Fetches children if not loaded for directory type object."""
+        if s3 and self.is_dir() and not self._fetched:
+            try:
+                self._children.extend(s3.get_objects(self))
+                self._fetched = True
+            except: # pylint: disable=bare-except
+                self._fetched = False
+        return self._children
+
+
+    @property
+    def name(self):
+        """Property getter."""
+        return self._name
+
+    @property
+    def parent(self):
+        """Property getter."""
+        return self._parent
+
+    @property
+    def root(self):
+        """Property getter."""
+        return self._root

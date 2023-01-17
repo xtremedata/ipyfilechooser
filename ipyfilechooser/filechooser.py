@@ -311,33 +311,30 @@ class FileChooser(VBox, ValueWidget):
         self._pathlist.options = []
         self._filename.value = ''
         self._dircontent.options = []
+        self._s3 = None
 
-    def _set_form_values_aws(self, path: str, filename: str) -> None:
+    def _set_form_values_aws(self, path: str, filename: str) -> None: # pylint: disable=unused-argument
         """Set the form values for the AWS storage."""
         # Process only with provided credentials
         if self._has_access_cred():
             # Fail early - test connection
-            # ... ToDo ...
+            if not self._s3:
+                self._init_s3()
+                self._s3.validate_cred()
 
             # Preps
             if self._show_only_dirs:
                 filename = ''
+            elif filename is None:
+                filename = ''
 
             # Fetch buckets
-            if not self._s3:
-                self._init_s3()
-
             if not path:
                 self._pathlist.options = self._s3.get_buckets()
                 self._dircontent.options = []
-                if self._sandbox_path:
-                    if self._s3.is_bucket_of(self._sandbox_path, self._pathlist.options):
-                        self._pathlist.value = self._sandbox_path
+                self._filename.value = filename
             else:
-                self._dircontent.options = self._s3.get_objects(self._pathlist.value)
-                if self._sandbox_path:
-                    if self._s3.is_object_of(self._sandbox_path, self._dircontent.options):
-                        self._filename = os.path.basename(self._sandbox_path)
+                self._dircontent.options = self._pathlist.value.fetch_children(self._s3)
 
     def _set_form_values_local(self, path: str, filename: str) -> None:
         """Set the form values for the local storage."""
@@ -474,6 +471,7 @@ class FileChooser(VBox, ValueWidget):
     def _on_access_cred_change(self, change: Mapping[Enum, Enum]) -> None:
         """Handles changing storage source access credentials."""
         if self._has_access_cred():
+            self._clear_form_values()
             self._set_form_values( \
                     self._sourcelist.value, \
                     None, \
@@ -481,10 +479,16 @@ class FileChooser(VBox, ValueWidget):
 
     def _on_pathlist_select(self, change: Mapping[str, str]) -> None:
         """Handle selecting a path entry."""
-        self._set_form_values( \
-                self._sourcelist.value, \
-                self._expand_path(change['new']), \
-                self._filename.value)
+        if self._sourcelist.value == SupportedSources.Local:
+            self._set_form_values( \
+                    self._sourcelist.value, \
+                    self._expand_path(change['new']), \
+                    self._filename.value)
+        elif self._sourcelist.value == SupportedSources.AWS:
+            self._set_form_values( \
+                    self._sourcelist.value, \
+                    change['new'], \
+                    self._filename.value)
 
     def _on_dircontent_select_local(self, change: Mapping[str, str]) -> None:
         """Handle selecting a folder entry."""

@@ -1,7 +1,7 @@
 import os
 import warnings
 from enum import Enum
-from typing import Optional, Sequence, Mapping, Callable
+from typing import Optional, Sequence, Mapping, Callable, Union
 from ipywidgets import Widget, Dropdown, Text, Select, Button, HTML
 from ipywidgets import Layout, GridBox, Box, HBox, VBox, ValueWidget
 
@@ -318,7 +318,7 @@ class FileChooser(VBox, ValueWidget):
         self._label.value = self._LBL_TEMPLATE.format(self._LBL_NOFILE, 'black')
         self._s3 = None
 
-    def _set_form_values_aws(self, path: str, filename: str) -> None: # pylint: disable=too-many-branches
+    def _set_form_values_aws(self, path: S3Obj, filename: str) -> None: # pylint: disable=too-many-branches
         """Set the form values for the AWS storage."""
         # Process only with provided credentials
         if self._has_access_cred():
@@ -332,36 +332,25 @@ class FileChooser(VBox, ValueWidget):
                 filename = ''
 
             # Fetch buckets
-            if not path:
-                master_root = S3Obj.make_root()
-                self._pathlist.options = [master_root]
-                self._pathlist.value = master_root
-                self._dircontent.options = master_root.fetch_children(self._s3)
-                if not master_root.fetched:
-                    self._cloud_storage_error(master_root.error)
-                self._filename.value = ''
+            if path is None:
+                path = S3Obj.make_root()
+                filename = ''
             elif not isinstance(path, S3Obj):
                 warnings.warn( \
                         f"Runtime error: invalid object for AWS storage: {type(path).__name__}:'{path:10}'")
-            elif path.is_master_root():
-                self._pathlist.options = [path]
-                self._pathlist.value = path
-                self._dircontent.options = path.fetch_children(self._s3)
-                self._filename.value = filename.filename()
-                if not path.fetched:
-                    self._cloud_storage_error(path.error)
-            elif path.is_root():
-                self._pathlist.value = path.parent.parent
-                self._pathlist.options.pop()
-                self._dircontent.options = self._pathlist.value.fetch_children(self._s3)
-                self._filename.value = filename.filename()
-                if not self._pathlist.value.fetched:
-                    self._cloud_storage_error(self._pathlist.value.error)
+                return
+            elif path.is_dirup():
+                path = path.parent.parent
+                filename = ''
+
+            self._pathlist.options = path.get_ancestry([])
+            self._pathlist.value = path
+            self._dircontent.options = path.fetch_children(self._s3)
+            self._filename.value = filename
+            if not path.fetched:
+                self._cloud_storage_error(self._s3.error)
             else:
-                self._pathlist.options = tuple(self._pathlist.options) + (path,)
-                self._pathlist.value = path
-                self._dircontent.options = path.fetch_children(self._s3)
-                self._filename.value = filename.filename()
+                self._label.value = self._LBL_TEMPLATE.format(self._LBL_NOFILE, 'black')
 
     def _set_form_values_local(self, path: str, filename: str) -> None:
         """Set the form values for the local storage."""
@@ -467,7 +456,7 @@ class FileChooser(VBox, ValueWidget):
             self._dircontent.value = None
             warnings.warn(f'Permission denied for {path}', RuntimeWarning)
 
-    def _set_form_values(self, source: str, path: str, filename: str) -> None:
+    def _set_form_values(self, source: str, path: Union[str,S3Obj], filename: str) -> None:
         """Set the form values."""
         # Disable triggers to prevent selecting an entry in the Select
         # box from automatically triggering a new event.
@@ -509,18 +498,26 @@ class FileChooser(VBox, ValueWidget):
             else:
                 self._cloud_storage_error("Invalid Credentials or connection error")
 
+    def _on_pathlist_select_local(self, change: Mapping[str, str]) -> None:
+        """Handle selecting a path entry."""
+        self._set_form_values( \
+                self._sourcelist.value, \
+                self._expand_path(change['new']), \
+                self._filename.value)
+
+    def _on_pathlist_select_aws(self, change: Mapping[str, str]) -> None:
+        """Handle selecting a path entry."""
+        self._set_form_values( \
+                self._sourcelist.value, \
+                change['new'], \
+                self._filename.value)
+
     def _on_pathlist_select(self, change: Mapping[str, str]) -> None:
         """Handle selecting a path entry."""
         if self._sourcelist.value == SupportedSources.Local:
-            self._set_form_values( \
-                    self._sourcelist.value, \
-                    self._expand_path(change['new']), \
-                    self._filename.value)
+            self._on_pathlist_select_local(change)
         elif self._sourcelist.value == SupportedSources.AWS:
-            self._set_form_values( \
-                    self._sourcelist.value, \
-                    change['new'], \
-                    self._filename.value)
+            self._on_pathlist_select_aws(change)
 
     def _on_dircontent_select_local(self, change: Mapping[str, str]) -> None:
         """Handle selecting a folder entry for local storage."""
@@ -556,7 +553,7 @@ class FileChooser(VBox, ValueWidget):
 
         else:
             path = self._pathlist.value
-            filename = selected
+            filename = selected.filename()
 
         self._set_form_values( \
                 self._sourcelist.value, \

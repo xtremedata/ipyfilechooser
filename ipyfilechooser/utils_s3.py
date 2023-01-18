@@ -122,6 +122,7 @@ class S3: # pylint: disable=too-many-public-methods
         self._resource = None
         self._key_name = None
         self._key_secret = None
+        self._error = None
 
 
     @property
@@ -168,6 +169,11 @@ class S3: # pylint: disable=too-many-public-methods
         if not self._resource:
             self._resource = self.session.resource('s3')
         return self._resource
+
+    @property
+    def error(self):
+        """Property getter."""
+        return self._error
 
 
     def reset(self):
@@ -227,19 +233,41 @@ class S3: # pylint: disable=too-many-public-methods
             return True
 
 
-    def get_buckets(self, parent) -> []:
+    def get_buckets(self, parent) -> Union[None,list]:
         """ Returns available buckets' names.
         """
-        res = S3Res(self.client.list_buckets())
-        return [S3Obj.make_obj(name, parent=parent) for name in res.get_buckets_names()]
+        self._error = None
+        try:
+            res = S3Res(self.client.list_buckets())
+        except (ClientError, EndpointConnectionError) as ex: # pylint: disable=bare-except
+            self._error = f"Failed AWS list_backets: {ex}"
+            return None
 
-    def get_objects(self, s3_obj: str) -> []:
+        else:
+            res_names = res.get_buckets_names()
+            if res_names is not None:
+                return [S3Obj.make_obj(name, parent=parent) for name in res_names]
+            self._error = f"Failed to parse response to list_buckets for: {parent.name[:20]}"
+            return None
+
+    def get_objects(self, parent: str) -> Union[None,list]:
         """ Returns list of objects for S3 path.
         """
-        # bucket, obj_path = self.parse_s3url(s3_obj)
-        bucket, obj_path = s3_obj.get_s3_call_data()
-        res = S3Res(self.client.list_objects_v2(Bucket=bucket, Prefix=obj_path))
-        return [S3Obj.make_obj(name, parent=s3_obj) for name in res.get_objects_names()]
+        self._error = None
+        # bucket, obj_path = self.parse_s3url(parent)
+        bucket, obj_path = parent.get_s3_call_data()
+        try:
+            res = S3Res(self.client.list_objects_v2(Bucket=bucket, Prefix=obj_path))
+        except (ClientError, EndpointConnectionError) as ex: # pylint: disable=bare-except
+            self._error = f"Failed AWS list_backets: {ex}"
+            return None
+
+        else:
+            res_names = res.get_objects_names()
+            if res_names is not None:
+                return [S3Obj.make_obj(name, parent=parent) for name in res_names]
+            self._error = f"Failed to parse response to list_objects_v2 for: {parent.name[:20]}"
+            return None
 
 
 
@@ -250,25 +278,43 @@ class S3Res:
 
     def __init__(self, res):
         self._res = res
+        self._count = 0
 
+
+    def get_key_count(self) -> Union[int,None]:
+        """ Returns key count from the response.
+        """
+        try:
+            self._count = self._res['KeyCount']
+        except KeyError:
+            warnings.warn("Invalid response")
+            self._count = None
+        return self._count
 
     def get_buckets_names(self) -> Union[list,None]:
         """ Returns bucket names from the response.
         """
+        res = []
         try:
-            return [b['Name'] for b in self._res['Buckets']]
-        except KeyError:
-            warnings.warn("Invalid response")
+            res = [b['Name'] for b in self._res['Buckets']]
+        except KeyError as ex:
+            warnings.warn(f"Invalid response: {ex}")
             return None
+        else:
+            return res
 
     def get_objects_names(self) -> Union[list,None]:
         """ Returns objects names from the response.
         """
+        res = []
         try:
-            return [o['Key'] for o in self._res['Contents']]
-        except KeyError:
-            warnings.warn("Invalid response")
+            if self.get_key_count():
+                res = [o['Key'] for o in self._res['Contents']]
+        except KeyError as ex:
+            warnings.warn(f"Invalid response: {ex}")
             return None
+        else:
+            return res
 
 
 
@@ -292,7 +338,8 @@ class S3Obj:
     def make_obj(cls, name, parent=None):
         """ Creates either directory or a leaf element S3 object.
         """
-        return cls.make_dir(name, parent) if S3.is_dir(name) else cls.make_elm(name, parent)
+        is_dir = S3.is_dir(name) or parent is not None and parent.is_master_root()
+        return cls.make_dir(name, parent) if is_dir else cls.make_elm(name, parent)
 
     @classmethod
     def make_dir(cls, name, parent=None):
@@ -315,7 +362,6 @@ class S3Obj:
         self._root = root
         self._children = None
         self._fetched = False
-        self._error = None
 
 
     def __str__(self):
@@ -345,6 +391,10 @@ class S3Obj:
         """Returns true if root - reference to parent."""
         return self._root
 
+    def is_dirup(self):
+        """Returns true if root, but not master root."""
+        return self.is_root() and not self.is_master_root()
+
     def is_bucket(self):
         """Returns true if bucket."""
         return self._parent is not None and self._parent.is_master_root()
@@ -355,13 +405,20 @@ class S3Obj:
 
     def get_s3_path(self):
         """Recursively collects S3 path excluding bucket name."""
-        return path.join(self._parent.get_s3_path(), self._name) if self._parent is not None else ""
+        return path.join(self._parent.get_s3_path(), self._name) if not self.is_bucket() else ""
 
     def get_s3_call_data(self):
         """Returns tuple (bucket, s3_path) to fetch object details."""
         bucket = self.get_bucket()
         s3_path = self.get_s3_path()
         return (bucket, s3_path)
+
+    def get_ancestry(self, parents: list) -> list:
+        """Lists all parents including self order."""
+        if self._parent:
+            self._parent.get_ancestry(parents)
+        parents.append(self)
+        return parents
 
     def filename(self):
         """Returns filename."""
@@ -370,19 +427,18 @@ class S3Obj:
     def fetch_children(self, s3_handle):
         """Fetches children if not loaded for directory type object."""
         if s3_handle and not self._fetched:
-            try:
-                if self.is_master_root():
-                    self._children = []
-                    children = s3_handle.get_buckets(self)
-                elif self.is_dir():
-                    children = s3_handle.get_objects(self)
-            except (ClientError, EndpointConnectionError) as ex: # pylint: disable=bare-except
-                self._fetched = False
-                self._error = ex
-            else:
+            if self.is_master_root():
+                self._children = []
+                children = s3_handle.get_buckets(self)
+            elif self.is_dir():
+                children = s3_handle.get_objects(self)
+
+            # Checking response for AWS call exceptions/errors
+            if children is not None:
                 self._fetched = True
-                self._error = None
                 self._children.extend(children)
+            else:
+                self._fetched = False
         return self._children
 
 
@@ -405,8 +461,3 @@ class S3Obj:
     def fetched(self):
         """Property getter."""
         return self._fetched
-
-    @property
-    def error(self):
-        """Property getter."""
-        return self._error

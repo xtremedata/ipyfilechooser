@@ -381,7 +381,7 @@ class S3Obj:
 
     def is_dir(self):
         """Returns true if directory."""
-        return self._children is not None or self.is_bucket()
+        return self._children is not None or self.is_bucket() or self.is_dirup()
 
     def is_master_root(self):
         """Returns true for master root - no parent."""

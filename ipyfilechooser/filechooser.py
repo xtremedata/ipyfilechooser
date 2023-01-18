@@ -1,3 +1,9 @@
+"""
+ipywidget: file chooser.
+
+ToDo: _set_form_values called twice per dircontent selection (possibly others) - the same stack!
+"""
+
 import os
 import warnings
 from enum import Enum
@@ -346,6 +352,8 @@ class FileChooser(VBox, ValueWidget):
             self._pathlist.options = path.get_ancestry([])
             self._pathlist.value = path
             self._dircontent.options = path.fetch_children(self._s3)
+            # cannot preselect to generate change events in every case
+            self._dircontent.value = None
             self._filename.value = filename
             if not path.fetched:
                 self._cloud_storage_error(self._s3.error)

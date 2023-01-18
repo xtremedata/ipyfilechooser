@@ -21,7 +21,7 @@ from .utils_sources import \
         is_valid_source, \
         req_access_cred, \
         build_access_cred_widget
-from .utils_s3 import S3
+from .utils_s3 import S3, S3Obj
 
 
 class FileChooser(VBox, ValueWidget):
@@ -305,6 +305,10 @@ class FileChooser(VBox, ValueWidget):
         self._s3.key_name = self._access_cred.children[0].value
         self._s3.key_secret = self._access_cred.children[1].value
 
+    def _cloud_storage_error(self, msg: str) -> None:
+        """ Reports cloud storage error."""
+        self._label.value = self._LBL_TEMPLATE.format(msg, 'red')
+
     def _clear_form_values(self) -> None:
         """ Clears values for widgets presenting directories and files on source change.
         """
@@ -317,10 +321,8 @@ class FileChooser(VBox, ValueWidget):
         """Set the form values for the AWS storage."""
         # Process only with provided credentials
         if self._has_access_cred():
-            # Fail early - test connection
             if not self._s3:
                 self._init_s3()
-                self._s3.validate_cred()
 
             # Preps
             if self._show_only_dirs:
@@ -330,11 +332,29 @@ class FileChooser(VBox, ValueWidget):
 
             # Fetch buckets
             if not path:
-                self._pathlist.options = self._s3.get_buckets()
-                self._dircontent.options = []
-                self._filename.value = filename
-            else:
+                self._pathlist.value = S3Obj.make_root()
+                self._pathlist.options = [self._pathlist.value]
                 self._dircontent.options = self._pathlist.value.fetch_children(self._s3)
+                self._filename.value = ''
+            elif not isinstance(path, S3Obj):
+                warnings.warn(f"Runtime error: invalid object for AWS storage: {type(path).__name__}")
+            elif path.is_master_root():
+                self._pathlist.value = path
+                self._pathlist.options = [self._pathlist.value]
+                self._dircontent.options = self._pathlist.value.fetch_children(self._s3)
+                self._filename.value = ''
+            elif path.is_root():
+                self._pathlist.value = path.parent.parent
+                self._pathlist.options.pop()
+                self._dircontent.options = self._pathlist.value.fetch_children(self._s3)
+                self._filename.value = ''
+            elif path.is_dir():
+                self._pathlist.options.append(path)
+                self._pathlist.value = path
+                self._dircontent.options = path.fetch_children(self._s3)
+                self._filename.value = ''
+            else:
+                self._filename.value = filename
 
     def _set_form_values_local(self, path: str, filename: str) -> None:
         """Set the form values for the local storage."""
@@ -472,10 +492,15 @@ class FileChooser(VBox, ValueWidget):
         """Handles changing storage source access credentials."""
         if self._has_access_cred():
             self._clear_form_values()
-            self._set_form_values( \
-                    self._sourcelist.value, \
-                    None, \
-                    None)
+            self._init_s3()
+            # Fail early - test connection
+            if self._s3.validate_cred():
+                self._set_form_values( \
+                        self._sourcelist.value, \
+                        None, \
+                        None)
+            else:
+                self._cloud_storage_error("Invalid Credentials or connection error")
 
     def _on_pathlist_select(self, change: Mapping[str, str]) -> None:
         """Handle selecting a path entry."""
@@ -491,7 +516,7 @@ class FileChooser(VBox, ValueWidget):
                     self._filename.value)
 
     def _on_dircontent_select_local(self, change: Mapping[str, str]) -> None:
-        """Handle selecting a folder entry."""
+        """Handle selecting a folder entry for local storage."""
         new_path = os.path.realpath(os.path.join(
             self._expand_path(self._pathlist.value),
             self._map_disp_to_name[change['new']]
@@ -511,16 +536,16 @@ class FileChooser(VBox, ValueWidget):
                 filename)
 
     def _on_dircontent_select_aws(self, change: Mapping[str, str]) -> None:
-        print("old:", change['old'])
-        print("new:", change['new'])
-        new_path = os.path.join(self._pathlist.value, change['new'])
+        """Handle selecting a folder entry for AWS."""
+        selected = change['new']
 
-        if S3.is_dir(new_path):
-            path = new_path
+        if selected.is_dir():
+            path = selected
             filename = self._filename.value
+
         else:
             path = self._pathlist.value
-            filename = change['new']
+            filename = selected
 
         self._set_form_values( \
                 self._sourcelist.value, \
@@ -528,17 +553,32 @@ class FileChooser(VBox, ValueWidget):
                 filename)
 
     def _on_dircontent_select(self, change: Mapping[str, str]) -> None:
+        """Handle selecting a folder entry."""
         if self._sourcelist.value == SupportedSources.Local:
             self._on_dircontent_select_local(change)
         elif self._sourcelist.value == SupportedSources.AWS:
             self._on_dircontent_select_aws(change)
 
-    def _on_filename_change(self, change: Mapping[str, str]) -> None:
-        """Handle filename field changes."""
+    def _on_filename_change_local(self, change: Mapping[str, str]) -> None:
+        """Handle filename field changes for local storage."""
         self._set_form_values( \
                 self._sourcelist.value, \
                 self._expand_path(self._pathlist.value), \
                 change['new'])
+
+    def _on_filename_change_aws(self, change: Mapping[str, str]) -> None:
+        """Handle filename field changes for AWS."""
+        self._set_form_values( \
+                self._sourcelist.value, \
+                self._pathlist.value, \
+                change['new'])
+
+    def _on_filename_change(self, change: Mapping[str, str]) -> None:
+        """Handle filename field changes."""
+        if self._sourcelist.value == SupportedSources.Local:
+            self._on_filename_change_local(change)
+        elif self._sourcelist.value == SupportedSources.AWS:
+            self._on_filename_change_aws(change)
 
     def _on_select_click(self, _b) -> None:
         """Handle select button clicks."""

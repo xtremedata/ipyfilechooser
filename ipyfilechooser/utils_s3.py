@@ -5,7 +5,7 @@ from os import path
 from typing import Union
 import warnings
 from urllib.parse import unquote, urlunparse, urlparse, ParseResult
-from botocore.exceptions import HTTPClientError, ClientError
+from botocore.exceptions import HTTPClientError, ClientError, EndpointConnectionError
 from boto3 import client, Session
 
 
@@ -192,7 +192,7 @@ class S3: # pylint: disable=too-many-public-methods
         return self.key_name and self.key_secret
 
 
-    def validate_cred(self):
+    def validate_cred(self) -> Union[None, bool]:
         """Returns true when authentication is valid."""
         try:
             sts = client('sts')
@@ -201,6 +201,8 @@ class S3: # pylint: disable=too-many-public-methods
                     aws_access_key_id=self.key_name, \
                     aws_secret_access_key=self.key_secret)
             sts.get_caller_identity()
+        except EndpointConnectionError:
+            return None
         except ClientError: # pylint: disable=bare-except
             return False
         else:
@@ -234,12 +236,10 @@ class S3: # pylint: disable=too-many-public-methods
     def get_objects(self, s3_obj: str) -> []:
         """ Returns list of objects for S3 path.
         """
-        if isinstance(s3_obj, str):
-            bucket, obj_path = self.parse_s3url(s3_obj)
-        else:
-            bucket, obj_path = s3_obj.get_s3_call_data()
+        # bucket, obj_path = self.parse_s3url(s3_obj)
+        bucket, obj_path = s3_obj.get_s3_call_data()
         res = S3Res(self.client.list_objects_v2(Bucket=bucket, Prefix=obj_path))
-        return res.get_objects_names()
+        return [S3Obj.make_obj(name, parent=s3_obj) for name in res.get_objects_names()]
 
 
 
@@ -277,6 +277,7 @@ class S3Obj:
     """ Represents S3 object (path).
     """
 
+    MASTER_ROOT_STR = "S3://"
     ROOT_STR = ".."
     SHORT_STR = "..."
 
@@ -298,8 +299,7 @@ class S3Obj:
         """ Creates directory like S3 object.
         """
         s3dir = cls(name, parent)
-        s3dir._children = []
-        s3dir._children.append(cls.make_root(s3dir))
+        s3dir._children = [cls.make_root(s3dir)]
         return s3dir
 
     @classmethod
@@ -318,7 +318,9 @@ class S3Obj:
 
 
     def __str__(self):
-        return self.ROOT_STR if self._root else self._name
+        return self.MASTER_ROOT_STR if self.is_master_root() \
+                else self.ROOT_STR if self.is_root() \
+                else self._name
 
     def __eq__(self, obj):
         return self._name == (obj.name if isinstance(obj, S3Obj) \
@@ -334,9 +336,21 @@ class S3Obj:
         """Returns true if directory."""
         return self._children is not None
 
+    def is_master_root(self):
+        """Returns true for master root - no parent."""
+        return self.is_root() and self._parent is None
+
+    def is_root(self):
+        """Returns true if root - reference to parent."""
+        return self._root
+
+    def is_bucket(self):
+        """Returns true if bucket."""
+        return self._parent is not None and self._parent.is_master_root()
+
     def get_bucket(self):
         """Recursively traces root parent for S3 bucket name."""
-        return self.name if self._parent is None else self._parent.get_bucket()
+        return self.name if self.is_bucket() else self._parent.get_bucket()
 
     def get_s3_path(self):
         """Recursively collects S3 path excluding bucket name."""
@@ -348,14 +362,19 @@ class S3Obj:
         s3_path = self.get_s3_path()
         return (bucket, s3_path)
 
-    def fetch_children(self, s3):
+    def fetch_children(self, s3_handle):
         """Fetches children if not loaded for directory type object."""
-        if s3 and self.is_dir() and not self._fetched:
+        if s3_handle and self.is_dir() and not self._fetched:
             try:
-                self._children.extend(s3.get_objects(self))
-                self._fetched = True
+                if self.is_master_root():
+                    children = s3_handle.get_buckets(self)
+                else:
+                    children = s3_handle.get_objects(self)
             except: # pylint: disable=bare-except
                 self._fetched = False
+            else:
+                self._fetched = True
+                self._children.extend(children)
         return self._children
 
 

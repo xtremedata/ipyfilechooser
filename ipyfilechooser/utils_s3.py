@@ -227,11 +227,11 @@ class S3: # pylint: disable=too-many-public-methods
             return True
 
 
-    def get_buckets(self) -> []:
+    def get_buckets(self, parent) -> []:
         """ Returns available buckets' names.
         """
         res = S3Res(self.client.list_buckets())
-        return [S3Obj.make_obj(name) for name in res.get_buckets_names()]
+        return [S3Obj.make_obj(name, parent=parent) for name in res.get_buckets_names()]
 
     def get_objects(self, s3_obj: str) -> []:
         """ Returns list of objects for S3 path.
@@ -315,6 +315,7 @@ class S3Obj:
         self._root = root
         self._children = None
         self._fetched = False
+        self._error = None
 
 
     def __str__(self):
@@ -334,7 +335,7 @@ class S3Obj:
 
     def is_dir(self):
         """Returns true if directory."""
-        return self._children is not None
+        return self._children is not None or self.is_bucket()
 
     def is_master_root(self):
         """Returns true for master root - no parent."""
@@ -354,7 +355,7 @@ class S3Obj:
 
     def get_s3_path(self):
         """Recursively collects S3 path excluding bucket name."""
-        return self._parent.name() + self._name if self._parent is not None else ""
+        return path.join(self._parent.get_s3_path(), self._name) if self._parent is not None else ""
 
     def get_s3_call_data(self):
         """Returns tuple (bucket, s3_path) to fetch object details."""
@@ -362,18 +363,25 @@ class S3Obj:
         s3_path = self.get_s3_path()
         return (bucket, s3_path)
 
+    def filename(self):
+        """Returns filename."""
+        return self._name
+
     def fetch_children(self, s3_handle):
         """Fetches children if not loaded for directory type object."""
-        if s3_handle and self.is_dir() and not self._fetched:
+        if s3_handle and not self._fetched:
             try:
                 if self.is_master_root():
+                    self._children = []
                     children = s3_handle.get_buckets(self)
-                else:
+                elif self.is_dir():
                     children = s3_handle.get_objects(self)
-            except: # pylint: disable=bare-except
+            except (ClientError, EndpointConnectionError) as ex: # pylint: disable=bare-except
                 self._fetched = False
+                self._error = ex
             else:
                 self._fetched = True
+                self._error = None
                 self._children.extend(children)
         return self._children
 
@@ -392,3 +400,13 @@ class S3Obj:
     def root(self):
         """Property getter."""
         return self._root
+
+    @property
+    def fetched(self):
+        """Property getter."""
+        return self._fetched
+
+    @property
+    def error(self):
+        """Property getter."""
+        return self._error

@@ -315,9 +315,10 @@ class FileChooser(VBox, ValueWidget):
         self._pathlist.options = []
         self._filename.value = ''
         self._dircontent.options = []
+        self._label.value = self._LBL_TEMPLATE.format(self._LBL_NOFILE, 'black')
         self._s3 = None
 
-    def _set_form_values_aws(self, path: str, filename: str) -> None: # pylint: disable=unused-argument
+    def _set_form_values_aws(self, path: str, filename: str) -> None: # pylint: disable=too-many-branches
         """Set the form values for the AWS storage."""
         # Process only with provided credentials
         if self._has_access_cred():
@@ -332,29 +333,35 @@ class FileChooser(VBox, ValueWidget):
 
             # Fetch buckets
             if not path:
-                self._pathlist.value = S3Obj.make_root()
-                self._pathlist.options = [self._pathlist.value]
-                self._dircontent.options = self._pathlist.value.fetch_children(self._s3)
+                master_root = S3Obj.make_root()
+                self._pathlist.options = [master_root]
+                self._pathlist.value = master_root
+                self._dircontent.options = master_root.fetch_children(self._s3)
+                if not master_root.fetched:
+                    self._cloud_storage_error(master_root.error)
                 self._filename.value = ''
             elif not isinstance(path, S3Obj):
-                warnings.warn(f"Runtime error: invalid object for AWS storage: {type(path).__name__}")
+                warnings.warn( \
+                        f"Runtime error: invalid object for AWS storage: {type(path).__name__}:'{path:10}'")
             elif path.is_master_root():
+                self._pathlist.options = [path]
                 self._pathlist.value = path
-                self._pathlist.options = [self._pathlist.value]
-                self._dircontent.options = self._pathlist.value.fetch_children(self._s3)
-                self._filename.value = ''
+                self._dircontent.options = path.fetch_children(self._s3)
+                self._filename.value = filename.filename()
+                if not path.fetched:
+                    self._cloud_storage_error(path.error)
             elif path.is_root():
                 self._pathlist.value = path.parent.parent
                 self._pathlist.options.pop()
                 self._dircontent.options = self._pathlist.value.fetch_children(self._s3)
-                self._filename.value = ''
-            elif path.is_dir():
-                self._pathlist.options.append(path)
+                self._filename.value = filename.filename()
+                if not self._pathlist.value.fetched:
+                    self._cloud_storage_error(self._pathlist.value.error)
+            else:
+                self._pathlist.options = tuple(self._pathlist.options) + (path,)
                 self._pathlist.value = path
                 self._dircontent.options = path.fetch_children(self._s3)
-                self._filename.value = ''
-            else:
-                self._filename.value = filename
+                self._filename.value = filename.filename()
 
     def _set_form_values_local(self, path: str, filename: str) -> None:
         """Set the form values for the local storage."""
@@ -484,11 +491,11 @@ class FileChooser(VBox, ValueWidget):
         self._filename.observe(self._on_filename_change, names='value')
         self._observe_access_cred()
 
-    def _on_sourcelist_select(self, change: Mapping[Enum, Enum]) -> None:
+    def _on_sourcelist_select(self, change: Mapping[Enum, Enum]) -> None: # pylint: disable=unused-argument
         """Handles selecting a storage source."""
         self._process_source_change()
 
-    def _on_access_cred_change(self, change: Mapping[Enum, Enum]) -> None:
+    def _on_access_cred_change(self, change: Mapping[Enum, Enum]) -> None: # pylint: disable=unused-argument
         """Handles changing storage source access credentials."""
         if self._has_access_cred():
             self._clear_form_values()
@@ -539,7 +546,11 @@ class FileChooser(VBox, ValueWidget):
         """Handle selecting a folder entry for AWS."""
         selected = change['new']
 
-        if selected.is_dir():
+        if selected is None:
+            path = None
+            filename = None
+
+        elif selected.is_dir():
             path = selected
             filename = self._filename.value
 

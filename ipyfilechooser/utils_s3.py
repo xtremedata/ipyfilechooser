@@ -362,6 +362,8 @@ class S3Obj:
         self._root = root
         self._children = None
         self._fetched = False
+        self._sorted = False
+        self._children_map = None
 
 
     def __str__(self):
@@ -381,7 +383,7 @@ class S3Obj:
 
     def is_dir(self):
         """Returns true if directory."""
-        return self._children is not None or self.is_bucket() or self.is_dirup()
+        return self.has_children() or self.is_bucket() or self.is_dirup()
 
     def is_master_root(self):
         """Returns true for master root - no parent."""
@@ -398,6 +400,10 @@ class S3Obj:
     def is_bucket(self):
         """Returns true if bucket."""
         return self._parent is not None and self._parent.is_master_root()
+
+    def has_children(self):
+        """Returns true if has children."""
+        return self._children is not None
 
     def get_bucket(self):
         """Recursively traces root parent for S3 bucket name."""
@@ -436,10 +442,45 @@ class S3Obj:
             # Checking response for AWS call exceptions/errors
             if children is not None:
                 self._fetched = True
+                self._sorted = False
                 self._children.extend(children)
             else:
                 self._fetched = False
+                self._sorted = False
         return self._children
+
+    def _prep_children(self, s3_handle):
+        """Prepares list of children (fetches if needed, sorts, etc.)."""
+        if not self._fetched:
+            self.fetch_children(s3_handle)
+        if self._fetched and bool(self._children):
+            if not self._sorted:
+                self._children.sort()
+                self._sorted = True
+            #buckets = [o for o in self._children if o.is_bucket()]
+            #dirs = self._children[0]
+            #dirs.extend([o for o in self._children if o.has_children() and not o.is_bucket()])
+            #files = [o for o in self._children if not o.is_dir()]
+        return self.has_children()
+
+    def ui_name_1(self, bucket_icon, dir_icon, file_icon):
+        """Returns string representation of this object for UI display."""
+        if self.is_bucket():
+            return f"{self.filename()} {bucket_icon}" if bucket_icon else f"{self.filename()}"
+        if self.is_dir():
+            return f"{self.filename()} {dir_icon}" if dir_icon else f"{self.filename()}"
+        return f"{self.filename()} {file_icon}" if file_icon else f"{self.filename()}"
+
+    def get_list(self, s3_handle, bucket_icon=None, dir_icon=None, file_icon=None):
+        """Prepares list of children for UI display as strings."""
+        if self._prep_children(s3_handle):
+            self._children_map = {o.ui_name_1(bucket_icon, dir_icon, file_icon): o \
+                for o in self._children}
+            res = [o.ui_name_1(bucket_icon, dir_icon, file_icon) for o in self._children]
+        else:
+            self._children_map = None
+            res = []
+        return res
 
 
     @property

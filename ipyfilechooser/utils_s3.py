@@ -327,6 +327,17 @@ class S3Obj:
     ROOT_STR = ".."
     SHORT_STR = "..."
 
+    # JS icon names
+    #DEF_BUCKET_ICON = 'database'
+    #DEF_DIR_ICON = 'folder'
+    #DEF_FILE_ICOM = 'file'
+
+    # Unicode emojis
+    #DEF_BUCKET_ICON = '\U0001F5C3'
+    DEF_BUCKET_ICON = '\U0001F5C4'
+    DEF_DIR_ICON = '\U0001F4C1'
+    DEF_FILE_ICOM = ''
+
 
     @classmethod
     def make_root(cls, parent=None):
@@ -363,18 +374,31 @@ class S3Obj:
         self._children = None
         self._fetched = False
         self._sorted = False
-        self._children_map = None
 
 
     def __str__(self):
-        return self.MASTER_ROOT_STR if self.is_master_root() \
-                else self.ROOT_STR if self.is_root() \
-                else self._name
+        return self.short_name()
 
     def __eq__(self, obj):
         return self._name == (obj.name if isinstance(obj, S3Obj) \
                 else obj if isinstance(obj, str) \
                 else str(obj))
+
+    def __lt__(self, other):
+        if self.is_master_root() or other.is_master_root():
+            return not other.is_master_root()
+        if self.is_dirup() or other.is_dirup():
+            return not other.is_dirup()
+        if self.is_bucket() or other.is_bucket():
+            return True if not other.is_bucket() \
+                    else self.name < other.name if self.is_bucket() \
+                    else False
+        if self.has_children() or other.has_children():
+            return True if not other.has_children() \
+                    else self.name < other.name if self.has_children() \
+                    else False
+
+        return self.name < other.name
 
 
     def is_leaf(self):
@@ -385,13 +409,17 @@ class S3Obj:
         """Returns true if directory."""
         return self.has_children() or self.is_bucket() or self.is_dirup()
 
+    def is_file(self):
+        """Returns true if file."""
+        return not self.is_dir()
+
     def is_master_root(self):
         """Returns true for master root - no parent."""
         return self.is_root() and self._parent is None
 
     def is_root(self):
         """Returns true if root - reference to parent."""
-        return self._root
+        return bool(self._root)
 
     def is_dirup(self):
         """Returns true if root, but not master root."""
@@ -430,6 +458,12 @@ class S3Obj:
         """Returns filename."""
         return self._name
 
+    def short_name(self):
+        """Returns short name."""
+        return self.MASTER_ROOT_STR if self.is_master_root() \
+                else self.ROOT_STR if self.is_root() \
+                else self._name
+
     def fetch_children(self, s3_handle):
         """Fetches children if not loaded for directory type object."""
         if s3_handle and not self._fetched:
@@ -466,26 +500,38 @@ class S3Obj:
     def ui_name_1(self, bucket_icon, dir_icon, file_icon):
         """Returns string representation of this object for UI display."""
         if self.is_bucket():
-            return f"{self.filename()} {bucket_icon}" if bucket_icon else f"{self.filename()}"
+            return f"{bucket_icon} {self.short_name()}" if bucket_icon else f"{self.short_name()}"
         if self.is_dir():
-            return f"{self.filename()} {dir_icon}" if dir_icon else f"{self.filename()}"
-        return f"{self.filename()} {file_icon}" if file_icon else f"{self.filename()}"
+            return f"{dir_icon} {self.short_name()}" if dir_icon else f"{self.short_name()}"
+        return f"{self.short_name()} {file_icon}" if file_icon else f"{self.short_name()}"
 
-    def get_list(self, s3_handle, bucket_icon=None, dir_icon=None, file_icon=None):
+    def get_pathlist(self, s3_handle, bucket_icon=None, dir_icon=None, file_icon=None):
         """Prepares list of children for UI display as strings."""
+        bucket_icon = bucket_icon if bucket_icon else self.DEF_BUCKET_ICON
+        dir_icon = dir_icon if dir_icon else self.DEF_DIR_ICON
+        file_icon = file_icon if file_icon else self.DEF_FILE_ICOM
         if self._prep_children(s3_handle):
-            self._children_map = {o.ui_name_1(bucket_icon, dir_icon, file_icon): o \
-                for o in self._children}
-            res = [o.ui_name_1(bucket_icon, dir_icon, file_icon) for o in self._children]
+            res = ((o.ui_name_1(bucket_icon, dir_icon, file_icon), o) for o in self._children)
         else:
-            self._children_map = None
-            res = []
+            res = tuple()
+        return res
+
+    def get_dirlist(self, s3_handle, bucket_icon=None, dir_icon=None, file_icon=None):
+        """Prepares list of children for UI display as strings."""
+        bucket_icon = bucket_icon if bucket_icon else self.DEF_BUCKET_ICON
+        dir_icon = dir_icon if dir_icon else self.DEF_DIR_ICON
+        file_icon = file_icon if file_icon else self.DEF_FILE_ICOM
+        if self._prep_children(s3_handle):
+            res = ((o.ui_name_1(bucket_icon, dir_icon, file_icon), o) for o in self._children)
+        else:
+            res = tuple()
         return res
 
 
     @property
     def name(self):
         """Property getter."""
+        #return path.basename(self._name) if self._name else ''
         return self._name
 
     @property

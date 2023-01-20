@@ -349,9 +349,9 @@ class FileChooser(VBox, ValueWidget):
                 path = path.parent.parent
                 filename = ''
 
-            self._pathlist.options = path.get_ancestry([])
+            self._pathlist.options = path.get_path_list()
             self._pathlist.value = path
-            self._dircontent.options = path.get_pathlist(self._s3)
+            self._dircontent.options = path.get_dir_list(self._s3)
             # cannot preselect to generate change events in every case
             self._dircontent.value = None
             self._filename.value = filename

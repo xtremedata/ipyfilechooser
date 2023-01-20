@@ -245,10 +245,9 @@ class S3: # pylint: disable=too-many-public-methods
 
         else:
             res_names = res.get_buckets_names()
-            if res_names is not None:
-                return [S3Obj.make_obj(name, parent=parent) for name in res_names]
-            self._error = f"Failed to parse response to list_buckets for: {parent.name[:20]}"
-            return None
+            if res_names is None:
+                self._error = f"Failed to parse response to list_buckets for: {parent.name[:20]}"
+            return res_names
 
     def get_objects(self, parent: str) -> Union[None,list]:
         """ Returns list of objects for S3 path.
@@ -264,10 +263,9 @@ class S3: # pylint: disable=too-many-public-methods
 
         else:
             res_names = res.get_objects_names()
-            if res_names is not None:
-                return [S3Obj.make_obj(name, parent=parent) for name in res_names]
-            self._error = f"Failed to parse response to list_objects_v2 for: {parent.name[:20]}"
-            return None
+            if res_names is None:
+                self._error = f"Failed to parse response to list_objects_v2 for: {parent.name[:20]}"
+            return res_names
 
 
 
@@ -340,20 +338,7 @@ class S3Obj:
 
 
     @classmethod
-    def make_root(cls, parent=None):
-        """ Creates root like S3 object (a reference to it's parent).
-        """
-        return cls(None, parent, root=True)
-
-    @classmethod
-    def make_obj(cls, name, parent=None):
-        """ Creates either directory or a leaf element S3 object.
-        """
-        is_dir = S3.is_dir(name) or parent is not None and parent.is_master_root()
-        return cls.make_dir(name, parent) if is_dir else cls.make_elm(name, parent)
-
-    @classmethod
-    def make_dir(cls, name, parent=None):
+    def _make_dir(cls, name: str, parent=None):
         """ Creates directory like S3 object.
         """
         s3dir = cls(name, parent)
@@ -361,13 +346,31 @@ class S3Obj:
         return s3dir
 
     @classmethod
-    def make_elm(cls, name, parent):
+    def _make_elm(cls, name: str, parent):
         """ Creates element like S3 object.
         """
         return cls(name, parent)
 
+    @classmethod
+    def make_root(cls, parent=None):
+        """ Creates root like S3 object (a reference to it's parent).
+        """
+        return cls(None, parent, root=True)
 
-    def __init__(self, name, parent=None, root=False):
+    @classmethod
+    def make_obj(cls, obj_path: str, parent=None):
+        """ Creates either directory or a leaf element S3 object.
+        """
+        root, tail = obj_path.split(path.sep, 1) if path.sep in obj_path else (obj_path, None)
+        is_dir = tail is not None or parent is not None and parent.is_master_root()
+        s3obj = cls._make_dir(root, parent) if is_dir else cls._make_elm(obj_path, parent)
+        s3obj = parent.add(s3obj)
+        if tail:
+            cls.make_obj(tail, s3obj)
+        return s3obj
+
+
+    def __init__(self, name: str, parent=None, root: bool=False):
         self._parent = parent
         self._name = name
         self._root = root
@@ -376,15 +379,15 @@ class S3Obj:
         self._sorted = False
 
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.short_name()
 
-    def __eq__(self, obj):
+    def __eq__(self, obj) -> bool:
         return self._name == (obj.name if isinstance(obj, S3Obj) \
                 else obj if isinstance(obj, str) \
                 else str(obj))
 
-    def __lt__(self, other):
+    def __lt__(self, other) -> bool:
         if self.is_master_root() or other.is_master_root():
             return not other.is_master_root()
         if self.is_dirup() or other.is_dirup():
@@ -401,47 +404,48 @@ class S3Obj:
         return self.name < other.name
 
 
-    def is_leaf(self):
+    def is_leaf(self) -> bool:
         """ Returns true if leaf."""
         return self._children is None
 
-    def is_dir(self):
+    def is_dir(self) -> bool:
         """Returns true if directory."""
         return self.has_children() or self.is_bucket() or self.is_dirup()
 
-    def is_file(self):
+    def is_file(self) -> bool:
         """Returns true if file."""
         return not self.is_dir()
 
-    def is_master_root(self):
+    def is_master_root(self) -> bool:
         """Returns true for master root - no parent."""
         return self.is_root() and self._parent is None
 
-    def is_root(self):
+    def is_root(self) -> bool:
         """Returns true if root - reference to parent."""
         return bool(self._root)
 
-    def is_dirup(self):
+    def is_dirup(self) -> bool:
         """Returns true if root, but not master root."""
         return self.is_root() and not self.is_master_root()
 
-    def is_bucket(self):
+    def is_bucket(self) -> bool:
         """Returns true if bucket."""
         return self._parent is not None and self._parent.is_master_root()
 
-    def has_children(self):
+    def has_children(self) -> bool:
         """Returns true if has children."""
         return self._children is not None
 
-    def get_bucket(self):
+    def get_bucket(self) -> str:
         """Recursively traces root parent for S3 bucket name."""
         return self.name if self.is_bucket() else self._parent.get_bucket()
 
-    def get_s3_path(self):
+    def get_s3_path(self) -> str:
         """Recursively collects S3 path excluding bucket name."""
-        return path.join(self._parent.get_s3_path(), self._name) if not self.is_bucket() else ""
+        return path.join(self._parent.get_s3_path(), self.name) \
+                if not self.is_master_root() and not self.is_bucket() else ""
 
-    def get_s3_call_data(self):
+    def get_s3_call_data(self) -> tuple:
         """Returns tuple (bucket, s3_path) to fetch object details."""
         bucket = self.get_bucket()
         s3_path = self.get_s3_path()
@@ -454,17 +458,39 @@ class S3Obj:
         parents.append(self)
         return parents
 
-    def filename(self):
+
+    def filename(self) -> Union[str,None]:
         """Returns filename."""
         return self._name
 
-    def short_name(self):
+    def short_name(self) -> Union[str,None]:
         """Returns short name."""
         return self.MASTER_ROOT_STR if self.is_master_root() \
                 else self.ROOT_STR if self.is_root() \
                 else self._name
 
-    def fetch_children(self, s3_handle):
+    def find(self, s3obj):
+        """Returns object matching argument or None."""
+        if not self.has_children():
+            return None
+        try:
+            return self._children[self._children.index(s3obj)]
+        except ValueError:
+            return None
+
+    def add(self, s3obj):
+        """Adds a child, returns existing if already a member."""
+        orig_s3obj = self.find(s3obj)
+        if orig_s3obj is not None:
+            return orig_s3obj
+        if not self.has_children():
+            self._children = []
+        self._children.append(s3obj)
+        s3obj.parent = self
+        self._sorted = False
+        return s3obj
+
+    def fetch_children(self, s3_handle) -> Union[list,None]:
         """Fetches children if not loaded for directory type object."""
         if s3_handle and not self._fetched:
             if self.is_master_root():
@@ -472,32 +498,28 @@ class S3Obj:
                 children = s3_handle.get_buckets(self)
             elif self.is_dir():
                 children = s3_handle.get_objects(self)
-
             # Checking response for AWS call exceptions/errors
-            if children is not None:
-                self._fetched = True
-                self._sorted = False
-                self._children.extend(children)
-            else:
+            if children is None:
                 self._fetched = False
+                self._sorted = False
+            else:
+                for s3path in children:
+                    self.make_obj(s3path, parent=self)
+                self._fetched = True
                 self._sorted = False
         return self._children
 
-    def _prep_children(self, s3_handle):
+    def _prep_children(self, s3_handle) -> Union[list,None]:
         """Prepares list of children (fetches if needed, sorts, etc.)."""
         if not self._fetched:
             self.fetch_children(s3_handle)
-        if self._fetched and bool(self._children):
+        if self._fetched and self.has_children():
             if not self._sorted:
                 self._children.sort()
                 self._sorted = True
-            #buckets = [o for o in self._children if o.is_bucket()]
-            #dirs = self._children[0]
-            #dirs.extend([o for o in self._children if o.has_children() and not o.is_bucket()])
-            #files = [o for o in self._children if not o.is_dir()]
         return self.has_children()
 
-    def ui_name_1(self, bucket_icon, dir_icon, file_icon):
+    def ui_name_1(self, bucket_icon, dir_icon, file_icon) -> str:
         """Returns string representation of this object for UI display."""
         if self.is_bucket():
             return f"{bucket_icon} {self.short_name()}" if bucket_icon else f"{self.short_name()}"
@@ -505,27 +527,30 @@ class S3Obj:
             return f"{dir_icon} {self.short_name()}" if dir_icon else f"{self.short_name()}"
         return f"{self.short_name()} {file_icon}" if file_icon else f"{self.short_name()}"
 
-    def get_pathlist(self, s3_handle, bucket_icon=None, dir_icon=None, file_icon=None):
-        """Prepares list of children for UI display as strings."""
-        bucket_icon = bucket_icon if bucket_icon else self.DEF_BUCKET_ICON
-        dir_icon = dir_icon if dir_icon else self.DEF_DIR_ICON
-        file_icon = file_icon if file_icon else self.DEF_FILE_ICOM
-        if self._prep_children(s3_handle):
-            res = ((o.ui_name_1(bucket_icon, dir_icon, file_icon), o) for o in self._children)
-        else:
-            res = tuple()
-        return res
+    def ui_fullpath(self) -> str:
+        """Returns full path for the S3 object."""
+        return path.join(self._parent.ui_fullpath(), self.short_name()) \
+                if not self.is_master_root() else self.short_name()
 
-    def get_dirlist(self, s3_handle, bucket_icon=None, dir_icon=None, file_icon=None):
+    def get_path_tuple(self) -> str:
+        """Returns tuple for UI widget with full path."""
+        return (self.ui_fullpath(), self)
+
+    def get_path_list(self) -> str:
+        """Prepares list of children for UI display as strings."""
+        return [o.get_path_tuple() for o in self.get_ancestry([])]
+
+    def get_dir_tuple(self, bucket_icon=None, dir_icon=None, file_icon=None):
+        """Returns tuple for UI widget with basename and icons."""
+        return (self.ui_name_1(bucket_icon, dir_icon, file_icon), self)
+
+    def get_dir_list(self, s3_handle, bucket_icon=None, dir_icon=None, file_icon=None):
         """Prepares list of children for UI display as strings."""
         bucket_icon = bucket_icon if bucket_icon else self.DEF_BUCKET_ICON
         dir_icon = dir_icon if dir_icon else self.DEF_DIR_ICON
         file_icon = file_icon if file_icon else self.DEF_FILE_ICOM
-        if self._prep_children(s3_handle):
-            res = ((o.ui_name_1(bucket_icon, dir_icon, file_icon), o) for o in self._children)
-        else:
-            res = tuple()
-        return res
+        return [o.get_dir_tuple(bucket_icon, dir_icon, file_icon) for o in self._children] \
+                if self._prep_children(s3_handle) else []
 
 
     @property
@@ -538,6 +563,10 @@ class S3Obj:
     def parent(self):
         """Property getter."""
         return self._parent
+    @parent.setter
+    def parent(self, new_parent):
+        """Property setter."""
+        self._parent = new_parent
 
     @property
     def root(self):

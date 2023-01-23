@@ -251,6 +251,23 @@ class S3: # pylint: disable=too-many-public-methods
 
     def get_objects(self, parent: str) -> Union[None,list]:
         """ Returns list of objects for S3 path.
+
+            boto3.list_objects_v2
+
+            With bucket and Prefix='' fetches all objects, thus all have to be parsed at once.
+
+            response = client.list_objects_v2(
+                Bucket='string',
+                Delimiter='string',
+                EncodingType='url',
+                MaxKeys=123,
+                Prefix='string',
+                ContinuationToken='string',
+                FetchOwner=True|False,
+                StartAfter='string',
+                RequestPayer='requester',
+                ExpectedBucketOwner='string'
+            )
         """
         self._error = None
         # bucket, obj_path = self.parse_s3url(parent)
@@ -317,7 +334,7 @@ class S3Res:
 
 
 
-class S3Obj:
+class S3Obj: # pylint: disable=too-many-public-methods
     """ Represents S3 object (path).
     """
 
@@ -341,9 +358,7 @@ class S3Obj:
     def _make_dir(cls, name: str, parent=None):
         """ Creates directory like S3 object.
         """
-        s3dir = cls(name, parent)
-        s3dir._children = [cls.make_root(s3dir)]
-        return s3dir
+        return cls(name, parent).init_children()
 
     @classmethod
     def _make_elm(cls, name: str, parent):
@@ -404,6 +419,11 @@ class S3Obj:
 
         return self.name < other.name
 
+
+    def init_children(self):
+        """Initializes children - adds parent reference for directories."""
+        self._children = [self.make_root(self)]
+        return self
 
     def is_leaf(self) -> bool:
         """ Returns true if leaf."""
@@ -496,17 +516,20 @@ class S3Obj:
         if s3_handle and not self._fetched:
             if self.is_master_root():
                 self._children = []
-                children = s3_handle.get_buckets(self)
-            elif self.is_dir():
-                children = s3_handle.get_objects(self)
-        return self.parse_children(children)
+                return self._parse_children(s3_handle.get_buckets(self), buckets=True)
+            if self.is_dir():
+                return self._parse_children(s3_handle.get_objects(self), buckets=False)
+        return self._children
 
-    def parse_children(self, children: Union[list,None]) -> Union[list,None]:
+    def _parse_children(self, children: Union[list,None], buckets: bool) -> Union[list,None]:
         """Parses fetched from AWS string data."""
         # Checking response for AWS call exceptions/errors
         if children is None:
             self._fetched = False
             self._sorted = False
+        elif buckets:
+            new_buckets = [self._make_dir(bname, parent=self) for bname in children]
+            self._children.extend(new_buckets)
         else:
             for s3path in children:
                 self.make_obj(s3path, parent=self)

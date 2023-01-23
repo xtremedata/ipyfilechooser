@@ -496,18 +496,26 @@ class S3Obj:
         if s3_handle and not self._fetched:
             if self.is_master_root():
                 self._children = []
-                children = s3_handle.get_buckets(self)
+                children = self.parse_paths(s3_handle.get_buckets(self), True)
             elif self.is_dir():
-                children = s3_handle.get_objects(self)
-        return self.parse_children(children)
+                children = self.parse_paths(s3_handle.get_objects(self), False)
+        return children
 
-    def parse_children(self, children: Union[list,None]) -> Union[list,None]:
-        """Parses fetched from AWS string data."""
+    def parse_paths(self, children: Union[list,None], buckets: bool) -> Union[list,None]:
+        """Parses fetched from AWS string data of available objects in a bucket."""
         # Checking response for AWS call exceptions/errors
         if children is None:
             self._fetched = False
             self._sorted = False
+            self._children = children
+        elif buckets:
+            self._children = [self._make_dir(name) for name in children]
+            self._fetched = True
+            self._sorted = False
         else:
+            tree = {}
+            for child in children.split(path.sep):
+                tree[child].append( .... - need recursive ...) to optimise, what "make_obj" does now not very efficiently!!!
             for s3path in children:
                 self.make_obj(s3path, parent=self)
             self._fetched = True

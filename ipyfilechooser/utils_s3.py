@@ -251,6 +251,23 @@ class S3: # pylint: disable=too-many-public-methods
 
     def get_objects(self, parent: str) -> Union[None,list]:
         """ Returns list of objects for S3 path.
+
+            boto3.list_objects_v2
+
+            With bucket and Prefix='' fetches all objects, thus all have to be parsed at once.
+
+            response = client.list_objects_v2(
+                Bucket='string',
+                Delimiter='string',
+                EncodingType='url',
+                MaxKeys=123,
+                Prefix='string',
+                ContinuationToken='string',
+                FetchOwner=True|False,
+                StartAfter='string',
+                RequestPayer='requester',
+                ExpectedBucketOwner='string'
+            )
         """
         self._error = None
         # bucket, obj_path = self.parse_s3url(parent)
@@ -317,7 +334,7 @@ class S3Res:
 
 
 
-class S3Obj:
+class S3Obj: # pylint: disable=too-many-public-methods
     """ Represents S3 object (path).
     """
 
@@ -341,9 +358,7 @@ class S3Obj:
     def _make_dir(cls, name: str, parent=None):
         """ Creates directory like S3 object.
         """
-        s3dir = cls(name, parent)
-        s3dir._children = [cls.make_root(s3dir)]
-        return s3dir
+        return cls(name, parent).init_children()
 
     @classmethod
     def _make_elm(cls, name: str, parent):
@@ -361,14 +376,13 @@ class S3Obj:
     def make_obj(cls, obj_path: str, parent=None):
         """ Creates either directory or a leaf element S3 object.
         """
-        root, tail = obj_path.split(path.sep, 1) if path.sep in obj_path else (obj_path, None)
-        is_dir = tail is not None or parent is not None and parent.is_master_root()
-        s3obj = cls._make_dir(root, parent) if is_dir else cls._make_elm(obj_path, parent)
-        if parent:
-            s3obj = parent.add(s3obj)
-        if tail:
-            cls.make_obj(tail, s3obj)
-        return s3obj
+        if obj_path is None:
+            return None
+        try:
+            head,_ = obj_path.split(path.sep,1)
+            return cls._make_dir(head, parent)
+        except ValueError:
+            return cls._make_elm(obj_path, parent)
 
 
     def __init__(self, name: str, parent=None, root: bool=False):
@@ -380,6 +394,9 @@ class S3Obj:
         self._sorted = False
 
 
+    def __repr__(self) -> str:
+        return type(self).__name__ + ":" + self.__str__()
+
     def __str__(self) -> str:
         return self.short_name()
 
@@ -387,6 +404,9 @@ class S3Obj:
         return self._name == (obj.name if isinstance(obj, S3Obj) \
                 else obj if isinstance(obj, str) \
                 else str(obj))
+
+    def __hash__(self):
+        return hash(self._name)
 
     def __lt__(self, other) -> bool:
         if self.is_master_root() or other.is_master_root():
@@ -404,6 +424,11 @@ class S3Obj:
 
         return self.name < other.name
 
+
+    def init_children(self):
+        """Initializes children - adds parent reference for directories."""
+        self._children = [self.make_root(self)]
+        return self
 
     def is_leaf(self) -> bool:
         """ Returns true if leaf."""
@@ -479,7 +504,7 @@ class S3Obj:
         except ValueError:
             return None
 
-    def add(self, s3obj):
+    def _add(self, s3obj):
         """Adds a child, returns existing if already a member."""
         orig_s3obj = self.find(s3obj)
         if orig_s3obj is not None:
@@ -496,30 +521,49 @@ class S3Obj:
         if s3_handle and not self._fetched:
             if self.is_master_root():
                 self._children = []
-                children = self.parse_paths(s3_handle.get_buckets(self), True)
-            elif self.is_dir():
-                children = self.parse_paths(s3_handle.get_objects(self), False)
-        return children
+                return self._parse_children(s3_handle.get_buckets(self), buckets=True)
+            if self.is_dir():
+                return self._parse_children(s3_handle.get_objects(self), buckets=False)
+        return self._children
 
-    def parse_paths(self, children: Union[list,None], buckets: bool) -> Union[list,None]:
+    def parse_objpaths(self, paths: Union[list,None]) -> Union[list,None]:
+        """Parses AWS S3 objects paths (not buckets)."""
+        children_map = {}
+        for child in paths:
+            if child:
+                try:
+                    head, tail = child.split(path.sep, 1)
+                except ValueError:
+                    # detected leaf - just adding to children and forget
+                    self._children.append(self._make_elm(child, self))
+                else:
+                    # detected directory - requires recursive processing
+                    try:
+                        children_map[head].append(tail)
+                    except KeyError:
+                        children_map[head] = [tail]
+        for child, descendents in children_map.items():
+            dir_child = self._make_dir(child, self)
+            if descendents:
+                dir_child.parse_objpaths(descendents)
+            self._children.append(dir_child)
+        # All AWS S3 objects are retrieved at once
+        self._fetched = True
+        self._sorted = False
+        return self._children
+
+    def _parse_children(self, children: Union[list,None], buckets: bool) -> Union[list,None]:
         """Parses fetched from AWS string data of available objects in a bucket."""
         # Checking response for AWS call exceptions/errors
         if children is None:
             self._fetched = False
             self._sorted = False
-            self._children = children
         elif buckets:
-            self._children = [self._make_dir(name) for name in children]
+            self._children = [self._make_dir(bname, parent=self) for bname in children]
             self._fetched = True
             self._sorted = False
-        else:
-            tree = {}
-            for child in children.split(path.sep):
-                tree[child].append( .... - need recursive ...) to optimise, what "make_obj" does now not very efficiently!!!
-            for s3path in children:
-                self.make_obj(s3path, parent=self)
-            self._fetched = True
-            self._sorted = False
+        elif children:
+            self.parse_objpaths(children)
         return self._children
 
     def _prep_children(self) -> bool:

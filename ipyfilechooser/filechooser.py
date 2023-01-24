@@ -92,6 +92,8 @@ class FileChooser(VBox, ValueWidget):
         self._azure = None
         self._map_name_to_disp = None
         self._map_disp_to_name = None
+        self._file_size_limit = 1 << 17 # 127kB
+        self._data = None
 
         # Widgets
         self._sourcelist = Dropdown(
@@ -135,8 +137,7 @@ class FileChooser(VBox, ValueWidget):
             description='Cancel',
             layout=Layout(
                 min_width='6em',
-                width='6em',
-                display='none'
+                width='6em'
             )
         )
         self._select = Button(
@@ -177,6 +178,7 @@ class FileChooser(VBox, ValueWidget):
         self._filename.observe(self._on_filename_change, names='value')
         self._select.on_click(self._on_select_click)
         self._cancel.on_click(self._on_cancel_click)
+        self._read.on_click(self._on_read_click)
 
         # Selected file label
         self._label = HTML(
@@ -353,6 +355,26 @@ class FileChooser(VBox, ValueWidget):
         self._label.value = self._LBL_TEMPLATE.format(self._LBL_NOFILE, 'black')
         self._s3 = None
 
+    def _update_widgets_on_set(self, is_valid_file: bool, deactivate_dialog: bool=False) -> None:
+        """ Updates widgets on change.
+            Notably allows action buttons based on selected object type.
+        """
+        if deactivate_dialog:
+            self._select.disabled = False
+            self._cancel.disabled = True
+            self._read.disabled = not is_valid_file
+            self._download.disabled = not is_valid_file
+        elif is_valid_file:
+            self._select.disabled = False
+            self._cancel.disabled = False
+            self._read.disabled = False
+            self._download.disabled = False
+        else:
+            self._select.disabled = True
+            self._cancel.disabled = True
+            self._read.disabled = True
+            self._download.disabled = True
+
     def _set_form_values_aws(self, path: S3Obj, filename: str) -> None: # pylint: disable=too-many-branches
         """Set the form values for the AWS storage."""
         # Process only with provided credentials
@@ -371,8 +393,7 @@ class FileChooser(VBox, ValueWidget):
                 path = S3Obj.make_root()
                 filename = ''
             elif not isinstance(path, S3Obj):
-                warnings.warn( \
-                        f"Runtime error: invalid object for AWS storage: {type(path).__name__}:'{path:10}'")
+                warnings.warn(f"Runtime error: invalid object for AWS storage: {type(path).__name__}:'{path:10}'")
                 return
             elif path.is_dirup():
                 path = path.parent.parent
@@ -381,33 +402,15 @@ class FileChooser(VBox, ValueWidget):
             self._pathlist.options = path.get_path_list()
             self._pathlist.value = path
             self._dircontent.options = path.get_dir_list(self._s3)
-            # cannot preselect to generate change events in every case
-            self._dircontent.value = None
+            if not filename:
+                # cannot preselect to generate change events in every case
+                self._dircontent.value = None
             self._filename.value = filename
             if not path.fetched:
                 self._cloud_storage_error(self._s3.error)
             else:
                 self._label.value = self._LBL_TEMPLATE.format(self._LBL_NOFILE, 'black')
-
-    def _update_widgets_on_set(self, is_valid_file: bool, deactivate_dialog: bool=False) -> None:
-        """ Updates widgets on change.
-            Notably allows action buttons based on selected object type.
-        """
-        if deactivate_dialog:
-            self._select.disabled = False
-            self._cancel.disabled = True
-            self._read.disabled = True
-            self._download.disabled = True
-        elif is_valid_file:
-            self._select.disabled = False
-            self._cancel.disabled = True
-            self._read.disabled = False
-            self._download.disabled = False
-        else:
-            self._select.disabled = True
-            self._cancel.disabled = False
-            self._read.disabled = True
-            self._download.disabled = True
+            self._update_widgets_on_set(is_valid_file=bool(filename))
 
     def _set_form_values_local(self, path: str, filename: str) -> None: # pylint: disable=too-many-locals
         """Set the form values for the local storage."""
@@ -661,6 +664,13 @@ class FileChooser(VBox, ValueWidget):
                     # Support previous behaviour of not passing self
                     self._callback()
 
+    def _on_read_click(self, _b) -> None:
+        """Handle read button clicks."""
+        if self._sourcelist.value == SupportedSources.AWS:
+            sel_obj = self._dircontent.value
+            if isinstance(sel_obj, S3Obj):
+                self._data = sel_obj.fetch_object(self._s3)
+
     def _show_dialog(self) -> None:
         """Show the dialog."""
         # Show dialog and cancel button
@@ -681,13 +691,14 @@ class FileChooser(VBox, ValueWidget):
                 path, \
                 filename)
 
-    def _close_dialog(self) -> None:
+    def _close_dialog(self, select: bool=True) -> None:
         """Closes/deactivates the dialog."""
         self._gb.layout.display = 'none'
         # widgets shouldn't appear/dissapear this way - just enable
         #self._cancel.layout.display = 'none'
-        self._select.description = self._change_desc
-        self._update_widgets_on_set(is_valid_file=True, deactivate_dialog=True)
+        if select:
+            self._select.description = self._change_desc
+        self._update_widgets_on_set(is_valid_file=select, deactivate_dialog=True)
 
     def _apply_selection_aws(self) -> None:
         """Close the dialog and apply the selection for AWS source."""
@@ -724,10 +735,7 @@ class FileChooser(VBox, ValueWidget):
 
     def _on_cancel_click(self, _b) -> None:
         """Handle cancel button clicks."""
-        self._gb.layout.display = 'none'
-        self._cancel.layout.display = 'none'
-        #self._select.disabled = False
-        self._update_widgets_on_set(is_valid_file=False)
+        self._close_dialog(select=False)
 
     def _expand_path(self, path) -> str:
         """Calculate the full path using the sandbox path."""
@@ -1033,3 +1041,18 @@ class FileChooser(VBox, ValueWidget):
     def get_interact_value(self) -> Optional[str]:
         """Return the value which should be passed to interactive functions."""
         return self.selected
+
+    @property
+    def file_size_limit(self) -> int:
+        """Property getter."""
+        return self._file_size_limit
+
+    @file_size_limit.setter
+    def file_size_limit(self, limit: int) -> None:
+        """Property setter."""
+        self._file_size_limit = limit
+
+    @property
+    def data(self) -> bytes:
+        """Property getter."""
+        return self._data

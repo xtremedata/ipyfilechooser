@@ -283,9 +283,10 @@ class S3: # pylint: disable=too-many-public-methods
                 self._error = f"Failed to parse response to list_objects_v2 for: /{bucket[:20]}.../{prefix[:20]}..." # pylint: disable=line-too-long
             return res_names
 
-    def get_object(self, s3_path: str) -> Union[None,object]:
+    def get_object(self, bucket: str, s3_path: str) -> Union[None,object]:
         """ Retrieves selected object with provided S3 path.
-        response = client.get_object(
+
+            response = client.get_object(
                 Bucket='string',
                 IfMatch='string',
                 IfModifiedSince=datetime(2015, 1, 1),
@@ -310,16 +311,15 @@ class S3: # pylint: disable=too-many-public-methods
         """
         self._error = None
         try:
-            res = S3Res(self.client.get_object())
+            res = S3Res(self.client.get_object(Bucket=bucket, Key=s3_path))
         except (ClientError, EndpointConnectionError) as ex: # pylint: disable=bare-except
             self._error = f"Failed AWS list_backets: {ex}"
             return None
-
         else:
-            res_names = res.get_objects_names()
-            if res_names is None:
-                self._error = f"Failed to parse response to list_objects_v2 for: {s3_path[:20]}..." # pylint: disable=line-too-long
-            return res_names
+            data = res.get_object_data()
+            if data is None:
+                self._error = f"Failed to parse response to list_objects_v2 for: /{bucket[:20]}/{s3_path[:20]}..." # pylint: disable=line-too-long
+            return data
 
 
 
@@ -368,6 +368,16 @@ class S3Res:
             return None
         else:
             return res
+
+    def get_object_data(self) -> bytes:
+        """ Returns object data.
+        """
+        try:
+            data = self._res['Body'].read()
+        except: # pylint: disable=bare-except
+            return None
+        else:
+            return data
 
 
 
@@ -510,7 +520,7 @@ class S3Obj: # pylint: disable=too-many-public-methods
             This path is intended for getting objects, thus as boto3 requires
             for 'get_object' it starts with '/'.
         """
-        return path.join(self._parent.get_s3_path(), self.name) \
+        return path.join(self._parent.get_s3_path_with_bucket(), self.name) \
                 if not self.is_master_root() else self.SEP_STR
 
     def get_s3_path(self) -> str:
@@ -565,8 +575,8 @@ class S3Obj: # pylint: disable=too-many-public-methods
 
     def fetch_object(self, s3_handle) -> object:
         """Fetches AWS S3 object."""
-        s3_path = self.get_s3_path_with_bucket()
-        return s3_handle.get_object(s3_path)
+        bucket, s3_path = self.get_s3_call_data()
+        return s3_handle.get_object(bucket, s3_path)
 
     def fetch_children(self, s3_handle) -> Union[list,None]:
         """Fetches children if not loaded for directory type object."""

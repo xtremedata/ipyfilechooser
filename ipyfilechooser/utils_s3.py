@@ -19,6 +19,7 @@ class S3: # pylint: disable=too-many-public-methods
     PFX = 'https'
     AWS_S3 = 's3.amazonaws.com'
     PG_PFX = '/'
+    SEP_STR = '/'
 
 
     @classmethod
@@ -60,7 +61,7 @@ class S3: # pylint: disable=too-many-public-methods
     def is_dir(cls, s3key):
         """ Returns true if path is a directory.
         """
-        return s3key.endswith(path.sep)
+        return s3key.endswith(cls.SEP_STR)
 
     @classmethod
     def is_child(cls, s3obj1, s3obj2):
@@ -71,7 +72,7 @@ class S3: # pylint: disable=too-many-public-methods
                 else s3obj1.key if s3obj1 \
                 else ''
         return key.startswith(s3obj2) and len(key) != len(s3obj2) if key and s3obj2 \
-                else (key.find(path.sep) == -1 or key[-1] == path.sep) if not s3obj2 \
+                else (key.find(cls.SEP_STR) == -1 or key[-1] == cls.SEP_STR) if not s3obj2 \
                 else False
 
     @classmethod
@@ -94,8 +95,8 @@ class S3: # pylint: disable=too-many-public-methods
         s3_parsed = urlparse(s3_url)
         return (None, None) if s3_parsed.scheme and s3_parsed.scheme is not cls.NAME \
                 else (s3_parsed.netloc, s3_parsed.path) if s3_parsed.netloc \
-                else (s3_parsed.path, '') if s3_parsed.path and path.sep not in s3_parsed.path \
-                else path.normpath(s3_parsed.path).split(path.sep,1) if s3_parsed.path \
+                else (s3_parsed.path, '') if s3_parsed.path and cls.SEP_STR not in s3_parsed.path \
+                else path.normpath(s3_parsed.path).split(cls.SEP_STR,1) if s3_parsed.path \
                 else ('', '')
 
     @classmethod
@@ -233,7 +234,7 @@ class S3: # pylint: disable=too-many-public-methods
             return True
 
 
-    def get_buckets(self, parent) -> Union[None,list]:
+    def get_buckets(self, parent: str) -> Union[None,list]:
         """ Returns available buckets' names.
         """
         self._error = None
@@ -246,10 +247,10 @@ class S3: # pylint: disable=too-many-public-methods
         else:
             res_names = res.get_buckets_names()
             if res_names is None:
-                self._error = f"Failed to parse response to list_buckets for: {parent.name[:20]}"
+                self._error = f"Failed to parse response to list_buckets for: {parent[:20]}"
             return res_names
 
-    def get_objects(self, parent: str) -> Union[None,list]:
+    def get_objects(self, bucket: str, prefix: str) -> Union[None,list]:
         """ Returns list of objects for S3 path.
 
             boto3.list_objects_v2
@@ -270,10 +271,8 @@ class S3: # pylint: disable=too-many-public-methods
             )
         """
         self._error = None
-        # bucket, obj_path = self.parse_s3url(parent)
-        bucket, obj_path = parent.get_s3_call_data()
         try:
-            res = S3Res(self.client.list_objects_v2(Bucket=bucket, Prefix=obj_path))
+            res = S3Res(self.client.list_objects_v2(Bucket=bucket, Prefix=prefix))
         except (ClientError, EndpointConnectionError) as ex: # pylint: disable=bare-except
             self._error = f"Failed AWS list_backets: {ex}"
             return None
@@ -281,8 +280,47 @@ class S3: # pylint: disable=too-many-public-methods
         else:
             res_names = res.get_objects_names()
             if res_names is None:
-                self._error = f"Failed to parse response to list_objects_v2 for: {parent.name[:20]}"
+                self._error = f"Failed to parse response to list_objects_v2 for: /{bucket[:20]}.../{prefix[:20]}..." # pylint: disable=line-too-long
             return res_names
+
+    def get_object(self, s3_path: str) -> Union[None,object]:
+        """ Retrieves selected object with provided S3 path.
+        response = client.get_object(
+                Bucket='string',
+                IfMatch='string',
+                IfModifiedSince=datetime(2015, 1, 1),
+                IfNoneMatch='string',
+                IfUnmodifiedSince=datetime(2015, 1, 1),
+                Key='string',
+                Range='string',
+                ResponseCacheControl='string',
+                ResponseContentDisposition='string',
+                ResponseContentEncoding='string',
+                ResponseContentLanguage='string',
+                ResponseContentType='string',
+                ResponseExpires=datetime(2015, 1, 1),
+                VersionId='string',
+                SSECustomerAlgorithm='string',
+                SSECustomerKey='string',
+                RequestPayer='requester',
+                PartNumber=123,
+                ExpectedBucketOwner='string',
+                ChecksumMode='ENABLED'
+            )
+        """
+        self._error = None
+        try:
+            res = S3Res(self.client.get_object())
+        except (ClientError, EndpointConnectionError) as ex: # pylint: disable=bare-except
+            self._error = f"Failed AWS list_backets: {ex}"
+            return None
+
+        else:
+            res_names = res.get_objects_names()
+            if res_names is None:
+                self._error = f"Failed to parse response to list_objects_v2 for: {s3_path[:20]}..." # pylint: disable=line-too-long
+            return res_names
+
 
 
 
@@ -341,6 +379,7 @@ class S3Obj: # pylint: disable=too-many-public-methods
     MASTER_ROOT_STR = "S3://"
     ROOT_STR = ".."
     SHORT_STR = "..."
+    SEP_STR = "/"
 
     # JS icon names
     #DEF_BUCKET_ICON = 'database'
@@ -379,7 +418,7 @@ class S3Obj: # pylint: disable=too-many-public-methods
         if obj_path is None:
             return None
         try:
-            head,_ = obj_path.split(path.sep,1)
+            head,_ = obj_path.split(cls.SEP_STR,1)
             return cls._make_dir(head, parent)
         except ValueError:
             return cls._make_elm(obj_path, parent)
@@ -466,6 +505,14 @@ class S3Obj: # pylint: disable=too-many-public-methods
         """Recursively traces root parent for S3 bucket name."""
         return self.name if self.is_bucket() else self._parent.get_bucket()
 
+    def get_s3_path_with_bucket(self) -> str:
+        """ Recursively collects S3 path including bucket name.
+            This path is intended for getting objects, thus as boto3 requires
+            for 'get_object' it starts with '/'.
+        """
+        return path.join(self._parent.get_s3_path(), self.name) \
+                if not self.is_master_root() else self.SEP_STR
+
     def get_s3_path(self) -> str:
         """Recursively collects S3 path excluding bucket name."""
         return path.join(self._parent.get_s3_path(), self.name) \
@@ -516,14 +563,20 @@ class S3Obj: # pylint: disable=too-many-public-methods
         self._sorted = False
         return s3obj
 
+    def fetch_object(self, s3_handle) -> object:
+        """Fetches AWS S3 object."""
+        s3_path = self.get_s3_path_with_bucket()
+        return s3_handle.get_object(s3_path)
+
     def fetch_children(self, s3_handle) -> Union[list,None]:
         """Fetches children if not loaded for directory type object."""
         if s3_handle and not self._fetched:
             if self.is_master_root():
                 self._children = []
-                return self._parse_children(s3_handle.get_buckets(self), buckets=True)
+                return self._parse_children(s3_handle.get_buckets(self.name), buckets=True)
             if self.is_dir():
-                return self._parse_children(s3_handle.get_objects(self), buckets=False)
+                bucket, prefix = self.get_s3_call_data()
+                return self._parse_children(s3_handle.get_objects(bucket, prefix), buckets=False)
         return self._children
 
     def parse_objpaths(self, paths: Union[list,None]) -> Union[list,None]:
@@ -532,7 +585,7 @@ class S3Obj: # pylint: disable=too-many-public-methods
         for child in paths:
             if child:
                 try:
-                    head, tail = child.split(path.sep, 1)
+                    head, tail = child.split(self.SEP_STR, 1)
                 except ValueError:
                     # detected leaf - just adding to children and forget
                     self._children.append(self._make_elm(child, self))

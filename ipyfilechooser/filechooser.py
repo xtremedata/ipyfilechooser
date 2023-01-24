@@ -44,6 +44,8 @@ class FileChooser(VBox, ValueWidget):
             source: SupportedSources = SupportedSources.Local,
             select_desc: str = 'Select',
             change_desc: str = 'Change',
+            read_desc: str = 'Read',
+            download_desc: str = 'Download',
             show_hidden: bool = False,
             select_default: bool = False,
             dir_icon: Optional[str] = '\U0001F4C1 ',
@@ -75,6 +77,8 @@ class FileChooser(VBox, ValueWidget):
         self._show_hidden = show_hidden
         self._select_desc = select_desc
         self._change_desc = change_desc
+        self._read_desc = read_desc
+        self._download_desc = download_desc
         self._select_default = select_default
         self._dir_icon = dir_icon
         self._dir_icon_append = dir_icon_append
@@ -86,6 +90,8 @@ class FileChooser(VBox, ValueWidget):
         self._local = None # A placeholder to move local paths/status into a separate object
         self._s3 = None
         self._azure = None
+        self._map_name_to_disp = None
+        self._map_disp_to_name = None
 
         # Widgets
         self._sourcelist = Dropdown(
@@ -140,6 +146,20 @@ class FileChooser(VBox, ValueWidget):
                 width='6em'
             )
         )
+        self._read = Button(
+            description=self._read_desc,
+            layout=Layout(
+                min_width='6em',
+                width='6em'
+            )
+        )
+        self._download = Button(
+            description=self._download_desc,
+            layout=Layout(
+                min_width='6em',
+                width='6em'
+            )
+        )
         self._title = HTML(
             value=title
         )
@@ -187,11 +207,19 @@ class FileChooser(VBox, ValueWidget):
         )
         self._update_gridbox()
 
+        statusbar = HBox(
+            children=[
+                Box([self._label], layout=Layout(overflow='auto'))
+            ],
+            layout=Layout(width='auto')
+        )
+
         buttonbar = HBox(
             children=[
                 self._select,
                 self._cancel,
-                Box([self._label], layout=Layout(overflow='auto'))
+                self._read,
+                self._download
             ],
             layout=Layout(width='auto')
         )
@@ -211,6 +239,7 @@ class FileChooser(VBox, ValueWidget):
             children=[
                 self._title,
                 self._gb,
+                statusbar,
                 buttonbar
             ],
             layout=layout,
@@ -360,7 +389,27 @@ class FileChooser(VBox, ValueWidget):
             else:
                 self._label.value = self._LBL_TEMPLATE.format(self._LBL_NOFILE, 'black')
 
-    def _set_form_values_local(self, path: str, filename: str) -> None:
+    def _update_widgets_on_set(self, is_valid_file: bool, deactivate_dialog: bool=False) -> None:
+        """ Updates widgets on change.
+            Notably allows action buttons based on selected object type.
+        """
+        if deactivate_dialog:
+            self._select.disabled = False
+            self._cancel.disabled = True
+            self._read.disabled = True
+            self._download.disabled = True
+        elif is_valid_file:
+            self._select.disabled = False
+            self._cancel.disabled = True
+            self._read.disabled = False
+            self._download.disabled = False
+        else:
+            self._select.disabled = True
+            self._cancel.disabled = False
+            self._read.disabled = True
+            self._download.disabled = True
+
+    def _set_form_values_local(self, path: str, filename: str) -> None: # pylint: disable=too-many-locals
         """Set the form values for the local storage."""
         # Check if the path falls inside the configured sandbox path
         if self._sandbox_path and not has_parent_path(path, self._sandbox_path):
@@ -455,10 +504,9 @@ class FileChooser(VBox, ValueWidget):
                 if self._filter_pattern:
                     check5 = not match_item(filename, self._filter_pattern)
 
-                if (check1 and check2) or check3 or check4 or check5:
-                    self._select.disabled = True
-                else:
-                    self._select.disabled = False
+                #self._select.disabled = (check1 and check2) or check3 or check4 or check5
+                not_a_valid_file = (check1 and check2) or check3 or check4 or check5
+                self._update_widgets_on_set(not not_a_valid_file)
         except PermissionError:
             # Deselect the unreadable folder and generate a warning
             self._dircontent.value = None
@@ -617,7 +665,8 @@ class FileChooser(VBox, ValueWidget):
         """Show the dialog."""
         # Show dialog and cancel button
         self._gb.layout.display = None
-        self._cancel.layout.display = None
+        # widgets shouldn't appear/dissapear this way - just enable
+        #self._cancel.layout.display = None
 
         # Show the form with the correct path and filename
         if ((self._selected_path is not None) and (self._selected_filename is not None)):
@@ -632,28 +681,53 @@ class FileChooser(VBox, ValueWidget):
                 path, \
                 filename)
 
-    def _apply_selection(self) -> None:
-        """Close the dialog and apply the selection."""
+    def _close_dialog(self) -> None:
+        """Closes/deactivates the dialog."""
+        self._gb.layout.display = 'none'
+        # widgets shouldn't appear/dissapear this way - just enable
+        #self._cancel.layout.display = 'none'
+        self._select.description = self._change_desc
+        self._update_widgets_on_set(is_valid_file=True, deactivate_dialog=True)
+
+    def _apply_selection_aws(self) -> None:
+        """Close the dialog and apply the selection for AWS source."""
+        self._selected_path = self._pathlist.value.get_s3_path_with_bucket()
+        self._selected_filename = self._filename.value
+
+        if self._selected_path and self._selected_filename:
+            self._close_dialog()
+            selected = os.path.join(self._selected_path, self._selected_filename)
+            self._label.value = self._LBL_TEMPLATE.format(self._restrict_path(selected), 'green')
+
+    def _apply_selection_local(self) -> None:
+        """Close the dialog and apply the selection for local source."""
         self._selected_path = self._expand_path(self._pathlist.value)
         self._selected_filename = self._filename.value
 
         if ((self._selected_path is not None) and (self._selected_filename is not None)):
             selected = os.path.join(self._selected_path, self._selected_filename)
-            self._gb.layout.display = 'none'
-            self._cancel.layout.display = 'none'
-            self._select.description = self._change_desc
-            self._select.disabled = False
+            self._close_dialog()
 
             if os.path.isfile(selected):
-                self._label.value = self._LBL_TEMPLATE.format(self._restrict_path(selected), 'orange')
+                self._label.value = self._LBL_TEMPLATE.format( \
+                        self._restrict_path(selected), 'orange')
             else:
-                self._label.value = self._LBL_TEMPLATE.format(self._restrict_path(selected), 'green')
+                self._label.value = self._LBL_TEMPLATE.format( \
+                        self._restrict_path(selected), 'green')
+
+    def _apply_selection(self) -> None:
+        """Close the dialog and apply the selection."""
+        if self._sourcelist.value == SupportedSources.Local:
+            self._apply_selection_local()
+        elif self._sourcelist.value == SupportedSources.AWS:
+            self._apply_selection_aws()
 
     def _on_cancel_click(self, _b) -> None:
         """Handle cancel button clicks."""
         self._gb.layout.display = 'none'
         self._cancel.layout.display = 'none'
-        self._select.disabled = False
+        #self._select.disabled = False
+        self._update_widgets_on_set(is_valid_file=False)
 
     def _expand_path(self, path) -> str:
         """Calculate the full path using the sandbox path."""
@@ -681,7 +755,7 @@ class FileChooser(VBox, ValueWidget):
     def reset(self, path: Optional[str] = None, filename: Optional[str] = None) -> None:
         """Reset the form to the default path and filename."""
         # Check if path and sandbox_path align
-        if path is not None and self._sandbox_path and not has_parent_path(normalize_path(path), self._sandbox_path):
+        if path is not None and self._sandbox_path and not has_parent_path(normalize_path(path), self._sandbox_path): # pylint: disable=line-too-long
             raise ParentPathError(path, self._sandbox_path)
 
         # Verify the filename is valid
@@ -694,11 +768,16 @@ class FileChooser(VBox, ValueWidget):
 
         # Hide dialog and cancel button
         self._gb.layout.display = 'none'
-        self._cancel.layout.display = 'none'
+        # widgets shouldn't appear/dissapear this way - just enable
+        # self._cancel.layout.display = 'none'
 
         # Reset select button and label
         self._select.description = self._select_desc
         self._select.disabled = False
+        self._read.description = self._read_desc
+        self._read.disabled = True
+        self._download.description = self._download_desc
+        self._download.disabled = True
         self._label.value = self._LBL_TEMPLATE.format(self._LBL_NOFILE, 'black')
 
         if path is not None:

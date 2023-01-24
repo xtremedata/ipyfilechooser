@@ -158,7 +158,7 @@ class FileChooser(VBox, ValueWidget):
             description=self._download_desc,
             layout=Layout(
                 min_width='6em',
-                width='6em'
+                width='8em'
             )
         )
         self._title = HTML(
@@ -371,7 +371,7 @@ class FileChooser(VBox, ValueWidget):
             self._download.disabled = False
         else:
             self._select.disabled = True
-            self._cancel.disabled = True
+            self._cancel.disabled = False
             self._read.disabled = True
             self._download.disabled = True
 
@@ -708,7 +708,7 @@ class FileChooser(VBox, ValueWidget):
         if self._selected_path and self._selected_filename:
             self._close_dialog()
             selected = os.path.join(self._selected_path, self._selected_filename)
-            self._label.value = self._LBL_TEMPLATE.format(self._restrict_path(selected), 'green')
+            self._label.value = self._LBL_TEMPLATE.format(self._restrict_path(selected), 'orange')
 
     def _apply_selection_local(self) -> None:
         """Close the dialog and apply the selection for local source."""

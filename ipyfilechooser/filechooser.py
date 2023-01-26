@@ -370,7 +370,7 @@ class FileChooser(VBox, ValueWidget):
             self._read.disabled = False
             self._download.disabled = False
         else:
-            self._select.disabled = True
+            self._select.disabled = self._gb.layout.display is None
             self._cancel.disabled = False
             self._read.disabled = True
             self._download.disabled = True

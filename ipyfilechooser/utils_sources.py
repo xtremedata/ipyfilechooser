@@ -18,11 +18,10 @@ class SupportedSources(Enum):
 
     @classmethod
     def elements(cls) -> [Enum]:
-        return [e for e in cls]
+        return list(cls)
 
     def __str__(self) -> str:
         return self.name
-
 
 
 def is_valid_source(source: Enum) -> bool:
@@ -31,14 +30,14 @@ def is_valid_source(source: Enum) -> bool:
 
 def req_access_cred(source: Enum) -> bool:
     """Returns True if requested source requires access credentials."""
-    return False if source == SupportedSources.Local else True
+    return not source == SupportedSources.Local
 
 def get_access_cred_layout(source: Enum, area_name: str) -> Layout:
     """Creates and returns a default layout for access credentials widgets."""
     return Layout(
             width='auto',
             grid_area=area_name,
-            display=(None, "none")[req_access_cred(source)]
+            display=('none', None)[req_access_cred(source)]
         )
 
 def get_access_cred_widgets(source: Enum) -> []:

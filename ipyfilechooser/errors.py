@@ -41,8 +41,18 @@ class InvalidFileNameError(Exception):
 class InvalidSourceError(Exception):
     """InvalidSourceError class."""
     valid_str = SupportedSources.names()
-    
+
     def __init__(self, source: SupportedSources, message: Optional[str] = None):
         self.source = source
-        self.message = message or f'{source} is not supported/known, supported: Enum:{self.valid_str}'
+        self.message = message \
+                or f'{source} is not supported/known, supported: Enum:{self.valid_str}'
         super().__init__(self.message)
+
+
+#class RuntimeError(Exception):
+#    """RuntimeError class."""
+#
+#    def __init__(self, reason: str, message: Optional[str] = None):
+#        self.message = message \
+#                or f'Runtime error, reason: {reason}'
+#        super().__init__(self.message)

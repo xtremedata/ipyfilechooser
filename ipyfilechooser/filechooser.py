@@ -28,9 +28,10 @@ from .utils_sources import \
         req_access_cred, \
         build_access_cred_widget
 from .utils_s3 import S3, S3Obj
+from .utils_azure import AzureClient, AzureObj
 
 
-class FileChooser(VBox, ValueWidget):
+class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods
     """FileChooser class."""
 
     _LBL_TEMPLATE = '<span style="color:{1};">{0}</span>'
@@ -702,7 +703,7 @@ class FileChooser(VBox, ValueWidget):
 
     def _apply_selection_aws(self) -> None:
         """Close the dialog and apply the selection for AWS source."""
-        self._selected_path = self._pathlist.value.get_s3_path_with_bucket()
+        self._selected_path = self._pathlist.value.get_cloud_path_with_bucket()
         self._selected_filename = self._filename.value
 
         if self._selected_path and self._selected_filename:

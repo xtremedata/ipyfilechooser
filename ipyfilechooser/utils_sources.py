@@ -11,17 +11,24 @@ from ipywidgets import Layout, VBox, Text, Password
 class SupportedSources(Enum):
     """Supported cloud storage."""
 
-    Local = 0,
-    AWS = 1,
-    Azure = 2
+    LOCAL = 0
+    AWS = 1
+    AZURE = 2
 
     @classmethod
     def names(cls) -> [str]:
+        """Returns known source names."""
         return [e.name for e in cls]
 
     @classmethod
     def elements(cls) -> [Enum]:
+        """Returns known source enum as list."""
         return list(cls)
+
+    @classmethod
+    def is_cloud(cls, source: Enum) -> bool:
+        """Returns True for cloud source."""
+        return source in (cls.AWS, cls.AZURE)
 
     def __str__(self) -> str:
         return self.name
@@ -33,7 +40,7 @@ def is_valid_source(source: Enum) -> bool:
 
 def req_access_cred(source: Enum) -> bool:
     """Returns True if requested source requires access credentials."""
-    return not source == SupportedSources.Local
+    return not source == SupportedSources.LOCAL
 
 def get_access_cred_layout(source: Enum, area_name: str) -> Layout:
     """Creates and returns a default layout for access credentials widgets."""
@@ -45,7 +52,7 @@ def get_access_cred_layout(source: Enum, area_name: str) -> Layout:
 
 def get_access_cred_widgets(source: Enum) -> []:
     """Returns template for access credentials for the requested source."""
-    if source == SupportedSources.Local:
+    if source == SupportedSources.LOCAL:
         return ()
     if source == SupportedSources.AWS:
         return [
@@ -64,7 +71,7 @@ def get_access_cred_widgets(source: Enum) -> []:
                     layout=get_access_cred_layout(source, 'secret')
                 )
         ]
-    if source == SupportedSources.Azure:
+    if source == SupportedSources.AZURE:
         return [
                 Text(
                     description="Azure Storage Account:",
@@ -99,22 +106,36 @@ class CloudClient:
     """
 
     def __init__(self):
-        pass
+        self._error = None
+
+    def init_cred(self, params: tuple): # pylint: disable=no-self-use
+        """ Initializes credential attributes.
+        """
+        raise RuntimeError("Not implemented")
+
+    def validate_cred(self) -> Union[None, bool]: # pylint: disable=no-self-use
+        """Returns true when authentication is valid."""
+        raise RuntimeError("Not implemented")
 
     def get_buckets(self, parent: str) -> Union[None,list]: # pylint: disable=no-self-use
         """ Returns available buckets/containers names.
         """
         raise RuntimeError("Not implemented")
 
-    def get_objects(self, bucket: str, prefix: str) -> Union[None,list]: # pylint: disable=no-self-use
+    def get_objects(self, bucket: str, prefix: str="") -> Union[None,list]: # pylint: disable=no-self-use
         """ Returns list of objects for cloud path.
         """
         raise RuntimeError("Not implemented")
 
-    def get_object(self, bucket: str, s3_path: str) -> Union[None,object]: # pylint: disable=no-self-use
+    def get_object(self, bucket: str, obj_path: str) -> Union[None,object]: # pylint: disable=no-self-use
         """ Retrieves selected object with provided cloud path.
         """
         raise RuntimeError("Not implemented")
+
+    @property
+    def error(self):
+        """Property getter."""
+        return self._error
 
 
 
@@ -399,7 +420,11 @@ class CloudObj: # pylint: disable=too-many-public-methods
         """Returns tuple for UI widget with basename and icons."""
         return (self.ui_name_1(bucket_icon, dir_icon, file_icon), self)
 
-    def get_dir_list(self, cloud_handle, bucket_icon=None, dir_icon=None, file_icon=None) -> [tuple]:
+    def get_dir_list(self, \
+            cloud_handle, \
+            bucket_icon=None, \
+            dir_icon=None, \
+            file_icon=None) -> [tuple]:
         """Prepares list of children for UI display as strings."""
         bucket_icon = bucket_icon if bucket_icon else self.DEF_BUCKET_ICON
         dir_icon = dir_icon if dir_icon else self.DEF_DIR_ICON

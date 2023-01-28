@@ -27,6 +27,7 @@ from .utils_sources import \
         is_valid_source, \
         req_access_cred, \
         build_access_cred_widget
+from .utils_sources import CloudClient, CloudObj
 from .utils_s3 import S3, S3Obj
 from .utils_azure import AzureClient, AzureObj
 
@@ -42,7 +43,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods
             path: str = os.getcwd(),
             filename: str = '',
             title: str = '',
-            source: SupportedSources = SupportedSources.Local,
+            source: SupportedSources = SupportedSources.LOCAL,
             select_desc: str = 'Select',
             change_desc: str = 'Change',
             read_desc: str = 'Read',
@@ -89,8 +90,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods
         self._sandbox_path = normalize_path(sandbox_path) if sandbox_path is not None else None
         self._callback: Optional[Callable] = None
         self._local = None # A placeholder to move local paths/status into a separate object
-        self._s3 = None
-        self._azure = None
+        self._cloud = None
         self._map_name_to_disp = None
         self._map_disp_to_name = None
         self._file_size_limit = 1 << 17 # 127kB
@@ -336,12 +336,45 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods
         # Reset the dialog
         self.refresh()
 
-    def _init_s3(self) -> None:
-        """ Creates/initializes the S3 instance.
+    def _make_cloud_root(self) -> CloudObj:
+        """ Creates proper cloud root object.
         """
-        self._s3 = S3()
-        self._s3.key_name = self._access_cred.children[0].value
-        self._s3.key_secret = self._access_cred.children[1].value
+        if self._sourcelist.value == SupportedSources.LOCAL:
+            return None
+        if self._sourcelist.value == SupportedSources.AWS:
+            return S3Obj.make_root()
+        if self._sourcelist.value == SupportedSources.AZURE:
+            return AzureObj.make_root()
+        warnings.warn(f"Storage source '{self._sourcelist.value:.10}' not implemented/uknown")
+        return None
+
+    def _init_s3(self) -> None:
+        """ Creates/initializes the S3 client.
+        """
+        self._cloud = S3()
+        self._cloud.init_cred( \
+                (self._access_cred.children[0].value, \
+                self._access_cred.children[1].value))
+
+    def _init_azure(self) -> None:
+        """ Creates/initializes the Azure client.
+        """
+        self._cloud = AzureClient()
+        self._cloud.init_cred( \
+                (self._access_cred.children[0].value, \
+                self._access_cred.children[1].value))
+
+    def _init_cloud(self) -> None:
+        """ Creates/initializes the cloud storage client.
+        """
+        if self._sourcelist.value == SupportedSources.LOCAL:
+            self._cloud = None
+        elif self._sourcelist.value == SupportedSources.AWS:
+            self._init_s3()
+        elif self._sourcelist.value == SupportedSources.AZURE:
+            self._init_azure()
+        else:
+            warnings.warn(f"Storage source '{self._sourcelist.value:.10}' not implemented/uknown")
 
     def _cloud_storage_error(self, msg: str) -> None:
         """ Reports cloud storage error."""
@@ -354,7 +387,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods
         self._filename.value = ''
         self._dircontent.options = []
         self._label.value = self._LBL_TEMPLATE.format(self._LBL_NOFILE, 'black')
-        self._s3 = None
+        self._cloud = None
 
     def _update_widgets_on_set(self, is_valid_file: bool, deactivate_dialog: bool=False) -> None:
         """ Updates widgets on change.
@@ -376,12 +409,12 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods
             self._read.disabled = True
             self._download.disabled = True
 
-    def _set_form_values_aws(self, path: S3Obj, filename: str) -> None: # pylint: disable=too-many-branches
-        """Set the form values for the AWS storage."""
+    def _set_form_values_cloud(self, path: CloudObj, filename: str) -> None: # pylint: disable=too-many-branches
+        """Set the form values for the cloud storage."""
         # Process only with provided credentials
         if self._has_access_cred():
-            if not self._s3:
-                self._init_s3()
+            if not self._cloud:
+                self._init_cloud()
 
             # Preps
             if self._show_only_dirs:
@@ -391,24 +424,25 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods
 
             # Fetch buckets
             if path is None:
-                path = S3Obj.make_root()
+                path = self._make_cloud_root()
                 filename = ''
-            elif not isinstance(path, S3Obj):
-                warnings.warn(f"Runtime error: invalid object for AWS storage: {type(path).__name__}:'{path:10}'")
+            elif not isinstance(path, CloudObj):
+                warnings.warn(f"Runtime error: invalid object for cloud storage: {type(path).__name__}:'{path:10}'")
                 return
-            elif path.is_dirup():
+
+            if path.is_dirup():
                 path = path.parent.parent
                 filename = ''
 
             self._pathlist.options = path.get_path_list()
             self._pathlist.value = path
-            self._dircontent.options = path.get_dir_list(self._s3)
+            self._dircontent.options = path.get_dir_list(self._cloud)
             if not filename:
                 # cannot preselect to generate change events in every case
                 self._dircontent.value = None
             self._filename.value = filename
             if not path.fetched:
-                self._cloud_storage_error(self._s3.error)
+                self._cloud_storage_error(self._cloud.error)
             else:
                 self._label.value = self._LBL_TEMPLATE.format(self._LBL_NOFILE, 'black')
             self._update_widgets_on_set(is_valid_file=bool(filename))
@@ -516,7 +550,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods
             self._dircontent.value = None
             warnings.warn(f'Permission denied for {path}', RuntimeWarning)
 
-    def _set_form_values(self, source: str, path: Union[str,S3Obj], filename: str) -> None:
+    def _set_form_values(self, source: str, path: Union[str,CloudObj], filename: str) -> None:
         """Set the form values."""
         # Disable triggers to prevent selecting an entry in the Select
         # box from automatically triggering a new event.
@@ -526,10 +560,10 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods
         self._filename.unobserve(self._on_filename_change, names='value')
         self._observe_access_cred(enable=False)
 
-        if self._sourcelist.value == SupportedSources.Local:
+        if self._sourcelist.value == SupportedSources.LOCAL:
             self._set_form_values_local(path, filename)
-        elif self._sourcelist.value == SupportedSources.AWS:
-            self._set_form_values_aws(path, filename)
+        elif SupportedSources.is_cloud(self._sourcelist.value):
+            self._set_form_values_cloud(path, filename)
         else:
             warnings.warn(f"Storage source '{source.name:.10}' not implemented/uknown")
 
@@ -548,9 +582,9 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods
         """Handles changing storage source access credentials."""
         if self._has_access_cred():
             self._clear_form_values()
-            self._init_s3()
+            self._init_cloud()
             # Fail early - test connection
-            if self._s3.validate_cred():
+            if self._cloud.validate_cred():
                 self._set_form_values( \
                         self._sourcelist.value, \
                         None, \
@@ -565,7 +599,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods
                 self._expand_path(change['new']), \
                 self._filename.value)
 
-    def _on_pathlist_select_aws(self, change: Mapping[str, str]) -> None:
+    def _on_pathlist_select_cloud(self, change: Mapping[str, str]) -> None:
         """Handle selecting a path entry."""
         self._set_form_values( \
                 self._sourcelist.value, \
@@ -574,10 +608,10 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods
 
     def _on_pathlist_select(self, change: Mapping[str, str]) -> None:
         """Handle selecting a path entry."""
-        if self._sourcelist.value == SupportedSources.Local:
+        if self._sourcelist.value == SupportedSources.LOCAL:
             self._on_pathlist_select_local(change)
-        elif self._sourcelist.value == SupportedSources.AWS:
-            self._on_pathlist_select_aws(change)
+        elif SupportedSources.is_cloud(self._sourcelist.value):
+            self._on_pathlist_select_cloud(change)
 
     def _on_dircontent_select_local(self, change: Mapping[str, str]) -> None:
         """Handle selecting a folder entry for local storage."""
@@ -599,8 +633,8 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods
                 path, \
                 filename)
 
-    def _on_dircontent_select_aws(self, change: Mapping[str, str]) -> None:
-        """Handle selecting a folder entry for AWS."""
+    def _on_dircontent_select_cloud(self, change: Mapping[str, str]) -> None:
+        """Handle selecting a folder entry for cloud."""
         selected = change['new']
 
         if selected is None:
@@ -622,10 +656,10 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods
 
     def _on_dircontent_select(self, change: Mapping[str, str]) -> None:
         """Handle selecting a folder entry."""
-        if self._sourcelist.value == SupportedSources.Local:
+        if self._sourcelist.value == SupportedSources.LOCAL:
             self._on_dircontent_select_local(change)
-        elif self._sourcelist.value == SupportedSources.AWS:
-            self._on_dircontent_select_aws(change)
+        elif SupportedSources.is_cloud(self._sourcelist.value):
+            self._on_dircontent_select_cloud(change)
 
     def _on_filename_change_local(self, change: Mapping[str, str]) -> None:
         """Handle filename field changes for local storage."""
@@ -634,8 +668,8 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods
                 self._expand_path(self._pathlist.value), \
                 change['new'])
 
-    def _on_filename_change_aws(self, change: Mapping[str, str]) -> None:
-        """Handle filename field changes for AWS."""
+    def _on_filename_change_cloud(self, change: Mapping[str, str]) -> None:
+        """Handle filename field changes for cloud."""
         self._set_form_values( \
                 self._sourcelist.value, \
                 self._pathlist.value, \
@@ -643,10 +677,10 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods
 
     def _on_filename_change(self, change: Mapping[str, str]) -> None:
         """Handle filename field changes."""
-        if self._sourcelist.value == SupportedSources.Local:
+        if self._sourcelist.value == SupportedSources.LOCAL:
             self._on_filename_change_local(change)
-        elif self._sourcelist.value == SupportedSources.AWS:
-            self._on_filename_change_aws(change)
+        elif SupportedSources.is_cloud(self._sourcelist.value):
+            self._on_filename_change_cloud(change)
 
     def _on_select_click(self, _b) -> None:
         """Handle select button clicks."""
@@ -667,10 +701,10 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods
 
     def _on_read_click(self, _b) -> None:
         """Handle read button clicks."""
-        if self._sourcelist.value == SupportedSources.AWS:
+        if SupportedSources.is_cloud(self._sourcelist.value):
             sel_obj = self._dircontent.value
-            if isinstance(sel_obj, S3Obj):
-                self._data = sel_obj.fetch_object(self._s3)
+            if isinstance(sel_obj, CloudObj):
+                self._data = sel_obj.fetch_object(self._cloud)
 
     def _show_dialog(self) -> None:
         """Show the dialog."""
@@ -701,8 +735,8 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods
             self._select.description = self._change_desc
         self._update_widgets_on_set(is_valid_file=select, deactivate_dialog=True)
 
-    def _apply_selection_aws(self) -> None:
-        """Close the dialog and apply the selection for AWS source."""
+    def _apply_selection_cloud(self) -> None:
+        """Close the dialog and apply the selection for cloud source."""
         self._selected_path = self._pathlist.value.get_cloud_path_with_bucket()
         self._selected_filename = self._filename.value
 
@@ -729,10 +763,10 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods
 
     def _apply_selection(self) -> None:
         """Close the dialog and apply the selection."""
-        if self._sourcelist.value == SupportedSources.Local:
+        if self._sourcelist.value == SupportedSources.LOCAL:
             self._apply_selection_local()
-        elif self._sourcelist.value == SupportedSources.AWS:
-            self._apply_selection_aws()
+        elif SupportedSources.is_cloud(self._sourcelist.value):
+            self._apply_selection_cloud()
 
     def _on_cancel_click(self, _b) -> None:
         """Handle cancel button clicks."""

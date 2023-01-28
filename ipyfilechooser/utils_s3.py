@@ -124,8 +124,17 @@ class S3(CloudClient): # pylint: disable=too-many-public-methods
         self._resource = None
         self._key_name = None
         self._key_secret = None
-        self._error = None
 
+
+    def init_cred(self, params: tuple):
+        """ Initializes credential attributes.
+        """
+        try:
+            key_name, key_secret = params
+            self.key_name = key_name
+            self.key_secret = key_secret
+        except ValueError as ex:
+            raise RuntimeError(f"Invalid arguments for init_cred for {type(self).__name__}") from ex
 
     @property
     def key_name(self):
@@ -171,11 +180,6 @@ class S3(CloudClient): # pylint: disable=too-many-public-methods
         if not self._resource:
             self._resource = self.session.resource('s3')
         return self._resource
-
-    @property
-    def error(self):
-        """Property getter."""
-        return self._error
 
 
     def reset(self):
@@ -250,7 +254,7 @@ class S3(CloudClient): # pylint: disable=too-many-public-methods
                 self._error = f"Failed to parse response to list_buckets for: {parent[:20]}"
             return res_names
 
-    def get_objects(self, bucket: str, prefix: str) -> Union[None,list]:
+    def get_objects(self, bucket: str, prefix: str="") -> Union[None,list]:
         """ Returns list of objects for S3 path.
 
             boto3.list_objects_v2
@@ -274,7 +278,7 @@ class S3(CloudClient): # pylint: disable=too-many-public-methods
         try:
             res = S3Res(self.client.list_objects_v2(Bucket=bucket, Prefix=prefix))
         except (ClientError, EndpointConnectionError) as ex: # pylint: disable=bare-except
-            self._error = f"Failed AWS list_backets: {ex}"
+            self._error = f"Failed AWS list_objects_v2: {ex}"
             return None
 
         else:
@@ -313,12 +317,12 @@ class S3(CloudClient): # pylint: disable=too-many-public-methods
         try:
             res = S3Res(self.client.get_object(Bucket=bucket, Key=s3_path))
         except (ClientError, EndpointConnectionError) as ex: # pylint: disable=bare-except
-            self._error = f"Failed AWS list_backets: {ex}"
+            self._error = f"Failed AWS get_object: {ex}"
             return None
         else:
             data = res.get_object_data()
             if data is None:
-                self._error = f"Failed to parse response to list_objects_v2 for: /{bucket[:20]}/{s3_path[:20]}..." # pylint: disable=line-too-long
+                self._error = f"Failed to parse response to get_object for: /{bucket[:20]}/{s3_path[:20]}..." # pylint: disable=line-too-long
             return data
 
 

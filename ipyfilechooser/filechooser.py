@@ -109,7 +109,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         )
         self._access_cred = build_access_cred_widget(
             self._default_source,
-            'access_cred'
+            self._access_cred_name()
         )
         self._pathlist = Dropdown(
             description="",
@@ -267,17 +267,19 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             - layout.grid_template_areas
         """
         # disabling widget
+        access_cred = self._access_cred_name()
+        req_acc_cred = req_access_cred(self._sourcelist.value)
+
         self._gb.disabled = True
         self._gb.layout.display = 'none'
-
         self._gb.children = [child_fun() \
                 for child_fun,cond_fun in self._all_gb_children.items() \
                 if cond_fun()]
         self._gb.layout.grid_template_areas = \
                 "\n'sourcelist sourcelist'" \
-                "\n{self._access_cred_name()}'pathlist {filename}'" \
+                "\n{access_cred}'pathlist {filename}'" \
                 "\n'dircontent dircontent'\n".format( \
-                    access_cred=('', "'access_cred access_cred'\n")[req_access_cred(self._sourcelist.value)], \
+                    access_cred=('', f"'{access_cred} {access_cred}'\n")[req_acc_cred], \
                     filename=('filename', 'pathlist')[self._show_only_dirs]) # pylint: disable=all
         # restoring view
         self._gb.disabled = False
@@ -287,14 +289,14 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         """ Returns True if proper access credentials are provided.
             Access Credentials widget has to be visible.
         """
-        return self._access_cred.layout.display is None \
+        return self._access_cred is not None and self._access_cred.layout.display is None \
                 and all(c.value for c in self._access_cred.children)
 
     def _access_cred_name(self) -> str:
         """ Returns access credentials widget name for layout template.
             Name different for different storage sources to differentiate browser passwords.
         """
-        return f"access_cred_{self._sourcelist.value.name}" if self._has_access_cred() else ''
+        return f"access_cred_{self._sourcelist.value.name}"
 
     def _show_access_cred(self, enable: Optional[bool] = None) -> None:
         """ Disables(hides)/enables(shows) access credentials widgets.

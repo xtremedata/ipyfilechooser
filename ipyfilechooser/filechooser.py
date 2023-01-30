@@ -231,7 +231,8 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         self._set_form_values( \
                 self._default_source, \
                 self._default_path, \
-                self._default_filename)
+                self._default_filename
+        )
 
         # Use the defaults as the selected values
         if self._select_default:
@@ -318,7 +319,10 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             if enable:
                 child.observe(self._on_access_cred_change, names='value')
             else:
-                child.unobserve(self._on_access_cred_change, names='value')
+                try:
+                    child.unobserve(self._on_access_cred_change, names='value')
+                except KeyError:
+                    pass
             child.disabled = disable
         self._access_cred.disabled = disable
 
@@ -328,7 +332,10 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         elif enable:
             self._sourcelist.observe(self._on_sourcelist_select, names='value')
         else:
-            self._sourcelist.unobserve(self._on_sourcelist_select, names='value')
+            try:
+                self._sourcelist.unobserve(self._on_sourcelist_select, names='value')
+            except KeyError:
+                pass
 
     def _process_source_change(self) -> None:
         """Processes storage source change."""
@@ -340,6 +347,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         self._show_access_cred(True)
         self._update_gridbox()
         self._clear_form_values()
+        self._init_cloud()
         self._clear_access_cred()
         # Reset the dialog
         self.refresh()
@@ -406,7 +414,6 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         self._filename.value = ''
         self._dircontent.options = []
         self._label.value = self._LBL_TEMPLATE.format(self._LBL_NOFILE, 'black')
-        self._cloud = None
 
     def _update_widgets_on_set(self, is_valid_file: bool, deactivate_dialog: bool=False) -> None:
         """ Updates widgets on change.
@@ -445,10 +452,13 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             if path is None:
                 path = self._make_cloud_root()
                 filename = ''
+
             elif not isinstance(path, CloudObj):
                 warnings.warn("Runtime error: invalid object for cloud storage" \
                         + f": {type(path).__name__}:'{path:10}'")
-                return
+                self._clear_form_values()
+                path = self._make_cloud_root()
+                filename = ''
 
             if path.is_dirup():
                 path = path.parent.parent
@@ -465,6 +475,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
                 self._cloud_storage_error(self._cloud.error)
             else:
                 self._label.value = self._LBL_TEMPLATE.format(self._LBL_NOFILE, 'black')
+
             self._update_widgets_on_set(is_valid_file=bool(filename))
 
     def _set_form_values_local(self, path: str, filename: str) -> None: # pylint: disable=too-many-locals
@@ -572,9 +583,18 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         # Disable triggers to prevent selecting an entry in the Select
         # box from automatically triggering a new event.
         self._observe_sourcelist(enable=False)
-        self._pathlist.unobserve(self._on_pathlist_select, names='value')
-        self._dircontent.unobserve(self._on_dircontent_select, names='value')
-        self._filename.unobserve(self._on_filename_change, names='value')
+        try:
+            self._pathlist.unobserve(self._on_pathlist_select, names='value')
+        except KeyError:
+            pass
+        try:
+            self._dircontent.unobserve(self._on_dircontent_select, names='value')
+        except KeyError:
+            pass
+        try:
+            self._filename.unobserve(self._on_filename_change, names='value')
+        except KeyError:
+            pass
         self._observe_access_cred(enable=False)
 
         if self._sourcelist.value == SupportedSources.LOCAL:

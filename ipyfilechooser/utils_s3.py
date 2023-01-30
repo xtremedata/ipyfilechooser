@@ -80,7 +80,7 @@ class S3(CloudClient): # pylint: disable=too-many-public-methods
     def s3obj_to_s3dict(cls, s3obj):
         """ Converts boto3 object to dictionary.
         """
-        return {\
+        return { \
                 'Key': s3obj.key, \
                 'LastModified': s3obj.last_modified, \
                 'Size': s3obj.content_length}

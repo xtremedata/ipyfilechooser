@@ -2,10 +2,8 @@
 """
 
 
-from os import path
 from typing import Union
 import warnings
-from urllib.parse import unquote, urlunparse, urlparse, ParseResult
 from azure.storage.blob import BlobServiceClient, ContainerClient, BlobClient
 from azure.core.exceptions import AzureError, HttpResponseError
 
@@ -19,6 +17,19 @@ class AzureClient(CloudClient):
 
     AZURE_CONN_STR_PFX = "https"
     AZURE_CONN_STR_SFX = "core.windows.net"
+
+
+    @classmethod
+    def get_master_root(cls):
+        """ Returns master root object for specific source.
+        """
+        return AzureObj.make_root()
+
+    @classmethod
+    def get_source_name(cls):
+        """ Returns the name of this storage source.
+        """
+        return AzureObj.MASTER_ROOT_STR
 
 
     def __init__(self):
@@ -43,6 +54,16 @@ class AzureClient(CloudClient):
     def has_cred(self):
         """Returns true when authentication is defined."""
         return self.account_name and self.account_key
+
+    def check_cred_changed(self, access_cred: []) -> bool:
+        """ Returns true when access credentials has changed.
+        """
+        try:
+            account_name, account_key = access_cred
+        except ValueError:
+            return False
+        else:
+            return account_name != self.account_name or account_key != self.account_key
 
     def validate_cred(self) -> Union[None, bool]:
         """Returns true when authentication is valid."""
@@ -221,7 +242,7 @@ class AzureObj(CloudObj): # pylint: disable=too-many-public-methods
     """ Represents cloud storage object (path).
     """
 
-    MASTER_ROOT_STR = "https://"
+    MASTER_ROOT_STR = "azure://"
 
 
     def __init__(self, *args, **kw):

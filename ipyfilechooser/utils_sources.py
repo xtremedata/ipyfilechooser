@@ -110,11 +110,30 @@ class CloudClient:
     """ Interface for cloud handles.
     """
 
+    @classmethod
+    def get_master_root(cls): # pylint: disable=no-self-use
+        """ Returns master root object for specific source.
+        """
+        raise RuntimeError("Not implemented")
+
+    @classmethod
+    def get_source_name(cls): # pylint: disable=no-self-use
+        """ Returns the name of this storage source.
+        """
+        raise RuntimeError("Not implemented")
+
+
     def __init__(self):
         self._error = None
 
+
     def init_cred(self, params: tuple): # pylint: disable=no-self-use
         """ Initializes credential attributes.
+        """
+        raise RuntimeError("Not implemented")
+
+    def check_cred_changed(self, access_cred: []) -> bool: # pylint: disable=no-self-use
+        """ Returns true when access credentials has changed.
         """
         raise RuntimeError("Not implemented")
 
@@ -136,6 +155,7 @@ class CloudClient:
         """ Retrieves selected object with provided cloud path.
         """
         raise RuntimeError("Not implemented")
+
 
     @property
     def error(self):
@@ -309,11 +329,50 @@ class CloudObj: # pylint: disable=too-many-public-methods
         """Returns filename."""
         return self._name
 
+    def check_cloud(self, obj_path) -> bool:
+        """ Returns true for a matching storage source.
+        """
+        # pylint: disable=unidiomatic-typecheck
+        return type(self) == type(obj_path) \
+                or isinstance(obj_path, str) and obj_path.startswith(self.MASTER_ROOT_STR)
+        # pylint: enable=unidiomatic-typecheck
+
+    def check_short_name(self, short_name) -> bool:
+        """ Compares short name with self - special for the master root.  """
+        return short_name == '' if self.is_master_root() else short_name == self.short_name()
+
     def short_name(self) -> Union[str,None]:
         """Returns short name."""
         return self.MASTER_ROOT_STR if self.is_master_root() \
                 else self.ROOT_STR if self.is_root() \
                 else self._name
+
+    def find_path(self, obj_path: str, cloud_handle): # pylint: disable=too-many-return-statements
+        """Returns object mathing path argument or None."""
+        if not obj_path:
+            return None
+        try:
+            root_name, tail_name = obj_path.split(self.SEP_STR, 1)
+        except ValueError:
+            return self if self.check_short_name(obj_path) else None
+
+        if not self._fetched:
+            self.fetch_children(cloud_handle)
+        if not self.check_short_name(root_name):
+            return None
+        if not self.has_children():
+            return self
+        for child in self._children:
+            res = child.find_path(tail_name, cloud_handle)
+            if res:
+                return res
+        return None
+
+    def find_path_ancestry(self, obj_path: str, cloud_handle) -> []:
+        """Returns list of ancestry matching string path."""
+        res = self.find_path(obj_path, cloud_handle)
+        ancestry = []
+        return res.get_ancestry(ancestry) if res else ancestry
 
     def find(self, cloud_obj):
         """Returns object matching argument or None."""
@@ -342,7 +401,10 @@ class CloudObj: # pylint: disable=too-many-public-methods
         return cloud_handle.get_object(bucket, s3_path)
 
     def fetch_children(self, cloud_handle) -> Union[list,None]:
-        """Fetches children if not loaded for directory type object."""
+        """ Fetches children if not loaded for directory type object.
+
+            @see self.parse_objpaths and self._parse_children methods
+        """
         if cloud_handle and not self._fetched:
             if self.is_master_root():
                 self._children = []
@@ -353,7 +415,11 @@ class CloudObj: # pylint: disable=too-many-public-methods
         return self._children
 
     def parse_objpaths(self, paths: Union[list,None]) -> Union[list,None]:
-        """Parses AWS S3 objects paths (not buckets)."""
+        """ Parses AWS S3 objects paths (not buckets).
+
+            Marks "fetched" flag, to allow this method to also be used to test
+            parsing paths without fetching actual data.
+        """
         children_map = {}
         for child in paths:
             if child:

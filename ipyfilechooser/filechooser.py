@@ -1,11 +1,17 @@
 """
 ipywidget: file chooser.
 
-ToDo: _set_form_values called twice per dircontent selection (possibly others) - the same stack!
+ToDo:
+ - _set_form_values called twice per dircontent selection (possibly others) - the same stack!
+ - get_objects called 7 times
+
+ Debugging: traceback.print_stack()
 """
 
 import os
 import warnings
+#import traceback
+
 from enum import Enum
 from typing import Optional, Sequence, Mapping, Callable, Union
 from ipywidgets import Widget, Dropdown, Text, Select, Button, HTML
@@ -60,7 +66,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             **kwargs): # pylint: disable=too-many-arguments, too-many-locals, too-many-statements
         """Initialize FileChooser object."""
         # Check if path and sandbox_path align
-        if sandbox_path and not has_parent_path(normalize_path(path), normalize_path(sandbox_path)):
+        if sandbox_path and not self._has_parent_path(self._normalize_path(path, source), self._normalize_path(sandbox_path, source), source):
             raise ParentPathError(path, sandbox_path)
 
         # Verify the filename is valid
@@ -71,7 +77,6 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         if not is_valid_source(source):
             raise InvalidSourceError(source)
 
-        self._default_path = normalize_path(path)
         self._default_filename = filename
         self._default_source = source
         self._selected_path: Optional[str] = None
@@ -87,7 +92,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         self._show_only_dirs = show_only_dirs
         self._disable_source = disable_source
         self._filter_pattern = filter_pattern
-        self._sandbox_path = normalize_path(sandbox_path) if sandbox_path is not None else None
+        self._sandbox_path = self._normalize_path(sandbox_path, source) if sandbox_path is not None else None
         self._callback: Optional[Callable] = None
         self._local = None # A placeholder to move local paths/status into a separate object
         self._cloud = None
@@ -169,14 +174,23 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         if title == '':
             self._title.layout.display = 'none'
 
+        # Handling default path due to possible different sources - needs widgets
+        normalized_path = self._normalize_path(path, source)
+        if self._check_integrity(normalized_path):
+            self._default_path = normalized_path
+        elif SupportedSources.is_cloud(source):
+            self._default_path = ''
+        else:
+            self._default_path = normalized_path
+
         # Widgets' style settings
         self._sourcelist.style.description_width = 'auto' # pylint: disable=no-member
 
         # Widget observe handlers
-        self._observe_sourcelist()
-        self._pathlist.observe(self._on_pathlist_select, names='value')
-        self._dircontent.observe(self._on_dircontent_select, names='value')
-        self._filename.observe(self._on_filename_change, names='value')
+        #self._observe_sourcelist()
+        #self._pathlist.observe(self._on_pathlist_select, names='value')
+        #self._dircontent.observe(self._on_dircontent_select, names='value')
+        #self._filename.observe(self._on_filename_change, names='value')
         self._select.on_click(self._on_select_click)
         self._cancel.on_click(self._on_cancel_click)
         self._read.on_click(self._on_read_click)
@@ -286,12 +300,29 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         self._gb.disabled = False
         self._gb.layout.display = None
 
+    def _has_parent_path(self, path: str, parent_path: Optional[str], source: Union[SupportedSources,None]=None) -> bool:
+        """Verifies if path falls under parent_path."""
+        if (self._sourcelist.value if source is None else source) == SupportedSources.LOCAL:
+            return has_parent_path(path, parent_path)
+        return False
+
+    def _normalize_path(self, path: str, source: Union[SupportedSources,None]=None) -> str:
+        """Normalize a path string."""
+        if (self._sourcelist.value if source is None else source) == SupportedSources.LOCAL:
+            return normalize_path(path)
+        return path
+
     def _has_access_cred(self) -> bool:
         """ Returns True if proper access credentials are provided.
             Access Credentials widget has to be visible.
         """
         return self._access_cred is not None and self._access_cred.layout.display is None \
                 and all(c.value for c in self._access_cred.children)
+
+    def _access_cred_changed(self) -> bool:
+        """ Returns True if access credentials changed.
+        """
+        return self._cloud and self._cloud.check_cred_changed([f.value for f in self._access_cred.children])
 
     def _access_cred_name(self) -> str:
         """ Returns access credentials widget name for layout template.
@@ -321,7 +352,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             else:
                 try:
                     child.unobserve(self._on_access_cred_change, names='value')
-                except KeyError:
+                except (KeyError, ValueError):
                     pass
             child.disabled = disable
         self._access_cred.disabled = disable
@@ -334,7 +365,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         else:
             try:
                 self._sourcelist.unobserve(self._on_sourcelist_select, names='value')
-            except KeyError:
+            except (KeyError, ValueError):
                 pass
 
     def _process_source_change(self) -> None:
@@ -344,25 +375,10 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             self._sourcelist.value,
             self._access_cred_name()
         )
+        # Reset the dialog
+        self.reset()
         self._show_access_cred(True)
         self._update_gridbox()
-        self._clear_form_values()
-        self._init_cloud()
-        self._clear_access_cred()
-        # Reset the dialog
-        self.refresh()
-
-    def _make_cloud_root(self) -> CloudObj:
-        """ Creates proper cloud root object.
-        """
-        if self._sourcelist.value == SupportedSources.LOCAL:
-            return None
-        if self._sourcelist.value == SupportedSources.AWS:
-            return S3Obj.make_root()
-        if self._sourcelist.value == SupportedSources.AZURE:
-            return AzureObj.make_root()
-        warnings.warn(f"Storage source '{self._sourcelist.value:.10}' not implemented/uknown")
-        return None
 
     def _init_s3(self) -> None:
         """ Creates/initializes the S3 client.
@@ -392,12 +408,34 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         else:
             warnings.warn(f"Storage source '{self._sourcelist.value:.10}' not implemented/uknown")
 
+    def _check_integrity(self, path: str) -> bool:
+        """ Returns true when data structure matches selected data source.
+        """
+        obj = self._pathlist.value
+        source = self._sourcelist.value
+        cloud = self._cloud
+        #return isinstance(obj, str) if source == SupportedSources.LOCAL \
+        #        else isinstance(obj, S3Obj) and isinstance(cloud, S3) if source == SupportedSources.AWS \
+        #        else isinstance(obj, AzureObj) and isinstance(cloud, AzureClient) if source == SupportedSources.AZURE \
+        #        else obj.check_cloud(path) if path and obj \
+        #        else False
+        if obj is None:
+            return True
+        if source == SupportedSources.LOCAL and not isinstance(obj, str) \
+                or source == SupportedSources.AWS and not isinstance(obj, S3Obj) and (not isinstance(cloud, S3) or cloud is None) \
+                or source == SupportedSources.AZURE and not isinstance(obj, AzureObj) and (not isinstance(cloud, AzureObj) or cloud is None):
+                    return False
+        return obj.check_cloud(path) if path and obj else False
+
+
     def _cloud_storage_error(self, msg: str) -> None:
         """ Reports cloud storage error."""
         self._label.value = self._LBL_TEMPLATE.format(msg, 'red')
 
     def _clear_access_cred(self) -> None:
-        """ Clears access credentials widgets."""
+        """ Clears access credentials widgets.
+            Should preceed clearing cloud client/form values.
+        """
         if self._access_cred is not None:
             self._observe_access_cred(False)
             for child in self._access_cred.children:
@@ -414,6 +452,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         self._filename.value = ''
         self._dircontent.options = []
         self._label.value = self._LBL_TEMPLATE.format(self._LBL_NOFILE, 'black')
+        self._init_cloud()
 
     def _update_widgets_on_set(self, is_valid_file: bool, deactivate_dialog: bool=False) -> None:
         """ Updates widgets on change.
@@ -437,6 +476,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
 
     def _set_form_values_cloud(self, path: CloudObj, filename: str) -> None: # pylint: disable=too-many-branches
         """Set the form values for the cloud storage."""
+        proceed = True
         # Process only with provided credentials
         if self._has_access_cred():
             if not self._cloud:
@@ -450,38 +490,50 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
 
             # Fetch buckets
             if path is None:
-                path = self._make_cloud_root()
+                path = self._cloud.get_master_root()
                 filename = ''
-
-            elif not isinstance(path, CloudObj):
+            elif not self._check_integrity(path):
                 warnings.warn("Runtime error: invalid object for cloud storage" \
                         + f": {type(path).__name__}:'{path:10}'")
-                self._clear_form_values()
-                path = self._make_cloud_root()
+                self.reset()
+                path = self._cloud.get_master_root()
                 filename = ''
+                proceed = False
+            elif isinstance(path, str):
+                obj = self._dircontent.value
+                if not obj or obj.ui_fullpath() != path:
+                    root_obj = self._cloud.get_master_root()
+                    obj = root_obj.find_path(path, self._cloud)
+                if not obj or obj.ui_fullpath() != path:
+                    self.reset()
+                    proceed = False
+                    obj = root_obj
+                # restoring pre-change selection or start from root if not found
+                path = obj
 
-            if path.is_dirup():
-                path = path.parent.parent
-                filename = ''
+            if proceed:
+                if path.is_dirup():
+                    path = path.parent.parent
+                    filename = ''
 
-            self._pathlist.options = path.get_path_list()
-            self._pathlist.value = path
-            self._dircontent.options = path.get_dir_list(self._cloud)
-            if not filename:
-                # cannot preselect to generate change events in every case
-                self._dircontent.value = None
-            self._filename.value = filename
-            if not path.fetched:
-                self._cloud_storage_error(self._cloud.error)
-            else:
-                self._label.value = self._LBL_TEMPLATE.format(self._LBL_NOFILE, 'black')
+                self._pathlist.options = path.get_path_list()
+                self._pathlist.value = path
+                self._dircontent.options = path.get_dir_list(self._cloud)
+                if not filename:
+                    # cannot preselect to generate change events in every case
+                    self._dircontent.value = None
+                self._filename.value = filename
+                if not path.fetched:
+                    self._cloud_storage_error(self._cloud.error)
+                else:
+                    self._label.value = self._LBL_TEMPLATE.format(self._LBL_NOFILE, 'black')
 
             self._update_widgets_on_set(is_valid_file=bool(filename))
 
     def _set_form_values_local(self, path: str, filename: str) -> None: # pylint: disable=too-many-locals
         """Set the form values for the local storage."""
         # Check if the path falls inside the configured sandbox path
-        if self._sandbox_path and not has_parent_path(path, self._sandbox_path):
+        if self._sandbox_path and not self._has_parent_path(path, self._sandbox_path):
             raise ParentPathError(path, self._sandbox_path)
 
         try:
@@ -585,15 +637,15 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         self._observe_sourcelist(enable=False)
         try:
             self._pathlist.unobserve(self._on_pathlist_select, names='value')
-        except KeyError:
+        except (KeyError, ValueError):
             pass
         try:
             self._dircontent.unobserve(self._on_dircontent_select, names='value')
-        except KeyError:
+        except (KeyError, ValueError):
             pass
         try:
             self._filename.unobserve(self._on_filename_change, names='value')
-        except KeyError:
+        except (KeyError, ValueError):
             pass
         self._observe_access_cred(enable=False)
 
@@ -618,16 +670,16 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
     def _on_access_cred_change(self, change: Mapping[Enum, Enum]) -> None: # pylint: disable=unused-argument
         """Handles changing storage source access credentials."""
         if self._has_access_cred():
-            self._clear_form_values()
-            self._init_cloud()
-            # Fail early - test connection
-            if self._cloud.validate_cred():
-                self._set_form_values( \
-                        self._sourcelist.value, \
-                        None, \
-                        None)
-            else:
-                self._cloud_storage_error("Invalid Credentials or connection error")
+            if self._access_cred_changed():
+                self._clear_form_values()
+                # Fail early - test connection
+                if self._cloud.validate_cred():
+                    self._set_form_values( \
+                            self._sourcelist.value, \
+                            None, \
+                            None)
+                else:
+                    self._cloud_storage_error("Invalid Credentials or connection error")
 
     def _on_pathlist_select_local(self, change: Mapping[str, str]) -> None:
         """Handle selecting a path entry."""
@@ -814,7 +866,6 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         if self._sandbox_path:
             path = self._default_path if not path \
                     else os.path.join(self._sandbox_path, path.lstrip(os.sep))
-
         return path
 
     def _restrict_path(self, path) -> str:
@@ -829,13 +880,13 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
                 path = strip_parent_path(path, os.path.splitdrive(self._sandbox_path)[0])
             else:
                 path = strip_parent_path(path, self._sandbox_path)
-
         return path
 
     def reset(self, path: Optional[str] = None, filename: Optional[str] = None) -> None:
         """Reset the form to the default path and filename."""
         # Check if path and sandbox_path align
-        if path is not None and self._sandbox_path and not has_parent_path(normalize_path(path), self._sandbox_path): # pylint: disable=line-too-long
+        if path is not None and self._sandbox_path \
+                and not self._has_parent_path(self._normalize_path(path), self._sandbox_path): # pylint: disable=line-too-long
             raise ParentPathError(path, self._sandbox_path)
 
         # Verify the filename is valid
@@ -861,7 +912,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         self._label.value = self._LBL_TEMPLATE.format(self._LBL_NOFILE, 'black')
 
         if path is not None:
-            self._default_path = normalize_path(path)
+            self._default_path = self._normalize_path(path)
 
         if filename is not None:
             self._default_filename = filename
@@ -874,6 +925,10 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         # Use the defaults as the selected values
         if self._select_default:
             self._apply_selection()
+
+        # Clear widgets
+        self._clear_access_cred()
+        self._clear_form_values()
 
     def refresh(self) -> None:
         """Re-render the form."""
@@ -954,14 +1009,20 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
     def default_path(self, path: str) -> None:
         """Set the default_path."""
         # Check if path and sandbox_path align
-        if self._sandbox_path and not has_parent_path(normalize_path(path), self._sandbox_path):
+        if self._sandbox_path and not self._has_parent_path(self._normalize_path(path), self._sandbox_path):
             raise ParentPathError(path, self._sandbox_path)
 
-        self._default_path = normalize_path(path)
-        self._set_form_values( \
-                self._sourcelist.value, \
-                self._default_path, \
-                self._filename.value)
+        normalized_path = self._normalize_path(path)
+        if self._check_integrity(normalized_path):
+            self._default_path = normalized_path
+            self._set_form_values( \
+                    self._sourcelist.value, \
+                    self._default_path, \
+                    self._filename.value)
+        else:
+            self._default_path = ''
+            warnings.warn(f"Invalid default path:{normalized_path[:10]} does not match selected storage")
+
 
     @property
     def default_filename(self) -> str:
@@ -1005,10 +1066,10 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
     def sandbox_path(self, sandbox_path: str) -> None:
         """Set the sandbox_path."""
         # Check if path and sandbox_path align
-        if sandbox_path and not has_parent_path(self._default_path, normalize_path(sandbox_path)):
+        if sandbox_path and not self._has_parent_path(self._default_path, self._normalize_path(sandbox_path)):
             raise ParentPathError(self._default_path, sandbox_path)
 
-        self._sandbox_path = normalize_path(sandbox_path) if sandbox_path is not None else None
+        self._sandbox_path = self._normalize_path(sandbox_path) if sandbox_path is not None else None
 
         # Reset the dialog
         self.reset()

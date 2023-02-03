@@ -10,6 +10,8 @@ from boto3 import client, Session
 
 from .utils_sources import CloudClient, CloudObj
 
+import traceback
+
 
 
 class S3(CloudClient): # pylint: disable=too-many-public-methods
@@ -116,6 +118,18 @@ class S3(CloudClient): # pylint: disable=too-many-public-methods
         """
         return False
 
+    @classmethod
+    def get_master_root(cls):
+        """ Returns master root object for specific source.
+        """
+        return S3Obj.make_root()
+
+    @classmethod
+    def get_source_name(cls):
+        """ Returns the name of this storage source.
+        """
+        return S3Obj.MASTER_ROOT_STR
+
 
     def __init__(self, *args, **kw):
         super().__init__(*args, **kw)
@@ -203,6 +217,15 @@ class S3(CloudClient): # pylint: disable=too-many-public-methods
         """Returns true when authentication is defined."""
         return self.key_name and self.key_secret
 
+    def check_cred_changed(self, access_cred: []) -> bool:
+        """ Returns true when access credentials has changed.
+        """
+        try:
+            key_id, key_secret = access_cred
+        except ValueError:
+            return False
+        else:
+            return key_id != self.key_name or key_secret != self.key_secret
 
     def validate_cred(self) -> Union[None, bool]:
         """Returns true when authentication is valid."""
@@ -244,8 +267,9 @@ class S3(CloudClient): # pylint: disable=too-many-public-methods
         self._error = None
         try:
             res = S3Res(self.client.list_buckets())
+            print("### get_buckets: parent:", parent)
         except (ClientError, EndpointConnectionError) as ex: # pylint: disable=bare-except
-            self._error = f"Failed AWS list_backets: {ex}"
+            self._error = f"Failed AWS list_buckets: {ex}"
             return None
 
         else:
@@ -277,6 +301,8 @@ class S3(CloudClient): # pylint: disable=too-many-public-methods
         self._error = None
         try:
             res = S3Res(self.client.list_objects_v2(Bucket=bucket, Prefix=prefix))
+            print("### get_objects: bucket:", bucket, ", prefix:", prefix)
+            traceback.print_stack()
         except (ClientError, EndpointConnectionError) as ex: # pylint: disable=bare-except
             self._error = f"Failed AWS list_objects_v2: {ex}"
             return None
@@ -287,7 +313,7 @@ class S3(CloudClient): # pylint: disable=too-many-public-methods
                 self._error = f"Failed to parse response to list_objects_v2 for: /{bucket[:20]}.../{prefix[:20]}..." # pylint: disable=line-too-long
             return res_names
 
-    def get_object(self, bucket: str, s3_path: str) -> Union[None,object]:
+    def get_object(self, bucket: str, obj_path: str) -> Union[None,object]:
         """ Retrieves selected object with provided S3 path.
 
             response = client.get_object(
@@ -315,14 +341,15 @@ class S3(CloudClient): # pylint: disable=too-many-public-methods
         """
         self._error = None
         try:
-            res = S3Res(self.client.get_object(Bucket=bucket, Key=s3_path))
+            res = S3Res(self.client.get_object(Bucket=bucket, Key=obj_path))
+            print("### get_objects: bucket:", bucket, ", path:", obj_path)
         except (ClientError, EndpointConnectionError) as ex: # pylint: disable=bare-except
             self._error = f"Failed AWS get_object: {ex}"
             return None
         else:
             data = res.get_object_data()
             if data is None:
-                self._error = f"Failed to parse response to get_object for: /{bucket[:20]}/{s3_path[:20]}..." # pylint: disable=line-too-long
+                self._error = f"Failed to parse response to get_object for: /{bucket[:20]}/{obj_path[:20]}..." # pylint: disable=line-too-long
             return data
 
 

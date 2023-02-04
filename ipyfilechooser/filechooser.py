@@ -495,7 +495,8 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             elif not self._check_integrity(path):
                 warnings.warn("Runtime error: invalid object for cloud storage" \
                         + f": {type(path).__name__}:'{path:10}'")
-                self.reset()
+                self._clear_access_cred()
+                self._clear_form_values()
                 path = self._cloud.get_master_root()
                 filename = ''
                 proceed = False
@@ -505,7 +506,8 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
                     root_obj = self._cloud.get_master_root()
                     obj = root_obj.find_path(path, self._cloud)
                 if not obj or obj.ui_fullpath() != path:
-                    self.reset()
+                    self._clear_access_cred()
+                    self._clear_form_values()
                     proceed = False
                     obj = root_obj
                 # restoring pre-change selection or start from root if not found

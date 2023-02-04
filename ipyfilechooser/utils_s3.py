@@ -267,7 +267,6 @@ class S3(CloudClient): # pylint: disable=too-many-public-methods
         self._error = None
         try:
             res = S3Res(self.client.list_buckets())
-            print("### get_buckets: parent:", parent)
         except (ClientError, EndpointConnectionError) as ex: # pylint: disable=bare-except
             self._error = f"Failed AWS list_buckets: {ex}"
             return None
@@ -301,8 +300,6 @@ class S3(CloudClient): # pylint: disable=too-many-public-methods
         self._error = None
         try:
             res = S3Res(self.client.list_objects_v2(Bucket=bucket, Prefix=prefix))
-            print("### get_objects: bucket:", bucket, ", prefix:", prefix)
-            traceback.print_stack()
         except (ClientError, EndpointConnectionError) as ex: # pylint: disable=bare-except
             self._error = f"Failed AWS list_objects_v2: {ex}"
             return None
@@ -342,7 +339,6 @@ class S3(CloudClient): # pylint: disable=too-many-public-methods
         self._error = None
         try:
             res = S3Res(self.client.get_object(Bucket=bucket, Key=obj_path))
-            print("### get_objects: bucket:", bucket, ", path:", obj_path)
         except (ClientError, EndpointConnectionError) as ex: # pylint: disable=bare-except
             self._error = f"Failed AWS get_object: {ex}"
             return None

@@ -304,7 +304,7 @@ class CloudObj: # pylint: disable=too-many-public-methods
             for 'get_object' it starts with '/'.
         """
         return path.join(self._parent.get_cloud_path_with_bucket(), self.name) \
-                if not self.is_master_root() else self.SEP_STR
+                if not self.is_master_root() else self.MASTER_ROOT_STR # self.SEP_STR
 
     def get_cloud_path(self) -> str:
         """Recursively collects S3 path excluding bucket name."""
@@ -339,7 +339,8 @@ class CloudObj: # pylint: disable=too-many-public-methods
 
     def check_short_name(self, short_name) -> bool:
         """ Compares short name with self - special for the master root.  """
-        return short_name == '' if self.is_master_root() else short_name == self.short_name()
+        return short_name == self.MASTER_ROOT_STR.strip(self.SEP_STR) \
+                if self.is_master_root() else short_name == self.short_name()
 
     def short_name(self) -> Union[str,None]:
         """Returns short name."""

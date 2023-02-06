@@ -356,7 +356,6 @@ class CloudObj: # pylint: disable=too-many-public-methods
             root_name, tail_name = obj_path.split(self.SEP_STR, 1)
         except ValueError:
             return self if self.check_short_name(obj_path) else None
-
         if not self._fetched:
             self.fetch_children(cloud_handle)
         if not self.check_short_name(root_name):

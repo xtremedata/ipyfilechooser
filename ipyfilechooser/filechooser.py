@@ -501,17 +501,27 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
                 filename = ''
                 proceed = False
             elif isinstance(path, str):
-                obj = self._dircontent.value
-                if not obj or obj.ui_fullpath() != path:
-                    root_obj = self._cloud.get_master_root()
-                    obj = root_obj.find_path(path, self._cloud)
-                if not obj or obj.ui_fullpath() != path:
+                root_obj = self._cloud.get_master_root()
+                path_obj = self._pathlist.value
+                dir_obj = self._dircontent.value
+                obj = None
+                if dir_obj and path_obj and path_obj.ui_fullpath() == path and dir_obj.filename() == filename:
+                    obj = dir_obj
+                if not obj:
+                    # this situation is very unlikely and likely would require
+                    # to go through all buckets and their objects to find
+                    # (likely not existing/matching) file - thus best is to
+                    # just reset
+                    # obj = root_obj.find_path(path, self._cloud)
+                    pass 
+                if not obj:
                     self._clear_access_cred()
                     self._clear_form_values()
                     proceed = False
                     obj = root_obj
                 # restoring pre-change selection or start from root if not found
                 path = obj
+                proceed = False
 
             if proceed:
                 if path.is_dirup():

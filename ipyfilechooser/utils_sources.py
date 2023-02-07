@@ -312,10 +312,10 @@ class CloudObj: # pylint: disable=too-many-public-methods
                 if not self.is_master_root() and not self.is_bucket() else ""
 
     def get_cloud_call_data(self) -> tuple:
-        """Returns tuple (bucket, s3_path) to fetch object details."""
+        """Returns tuple (bucket, obj_path) to fetch object details."""
         bucket = self.get_bucket()
-        s3_path = self.get_cloud_path()
-        return (bucket, s3_path)
+        obj_path = self.get_cloud_path()
+        return (bucket, obj_path)
 
     def get_ancestry(self, parents: list) -> list:
         """Lists all parents including self order."""
@@ -397,8 +397,8 @@ class CloudObj: # pylint: disable=too-many-public-methods
 
     def fetch_object(self, cloud_handle) -> object:
         """Fetches AWS S3 object."""
-        bucket, s3_path = self.get_cloud_call_data()
-        return cloud_handle.get_object(bucket, s3_path)
+        bucket, obj_path = self.get_cloud_call_data()
+        return cloud_handle.get_object(bucket, obj_path)
 
     def fetch_children(self, cloud_handle) -> Union[list,None]:
         """ Fetches children if not loaded for directory type object.

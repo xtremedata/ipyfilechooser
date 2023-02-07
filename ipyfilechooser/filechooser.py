@@ -53,6 +53,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             select_desc: str = 'Select',
             change_desc: str = 'Change',
             read_desc: str = 'Read',
+            read_meta_desc: str = 'Read dbX Meta',
             download_desc: str = 'Download',
             show_hidden: bool = False,
             select_default: bool = False,
@@ -85,6 +86,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         self._select_desc = select_desc
         self._change_desc = change_desc
         self._read_desc = read_desc
+        self._read_meta_desc = read_meta_desc
         self._download_desc = download_desc
         self._select_default = select_default
         self._dir_icon = dir_icon
@@ -100,6 +102,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         self._map_disp_to_name = None
         self._file_size_limit = 1 << 17 # 127kB
         self._data = None
+        self._data_error = None
 
         # Widgets
         self._sourcelist = Dropdown(
@@ -160,6 +163,13 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
                 width='6em'
             )
         )
+        self._read_meta = Button(
+            description=self._read_meta_desc,
+            layout=Layout(
+                min_width='6em',
+                width='8em'
+            )
+        )
         self._download = Button(
             description=self._download_desc,
             layout=Layout(
@@ -194,6 +204,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         self._select.on_click(self._on_select_click)
         self._cancel.on_click(self._on_cancel_click)
         self._read.on_click(self._on_read_click)
+        self._read_meta.on_click(self._on_read_meta_click)
 
         # Selected file label
         self._label = HTML(
@@ -236,6 +247,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
                 self._select,
                 self._cancel,
                 self._read,
+                self._read_meta,
                 self._download
             ],
             layout=Layout(width='auto')
@@ -462,16 +474,19 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             self._select.disabled = False
             self._cancel.disabled = True
             self._read.disabled = not is_valid_file
+            self._read_meta.disabled = False
             self._download.disabled = not is_valid_file
         elif is_valid_file:
             self._select.disabled = False
             self._cancel.disabled = False
             self._read.disabled = False
+            self._read_meta.disabled = False
             self._download.disabled = False
         else:
             self._select.disabled = self._gb.layout.display is None
             self._cancel.disabled = False
             self._read.disabled = True
+            self._read_meta.disabled = True
             self._download.disabled = True
 
     def _set_form_values_cloud(self, path: CloudObj, filename: str) -> None: # pylint: disable=too-many-branches
@@ -806,6 +821,23 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             sel_obj = self._dircontent.value
             if isinstance(sel_obj, CloudObj):
                 self._data = sel_obj.fetch_object(self._cloud)
+                self._data_error = self._cloud.error
+
+    def _on_read_meta_click(self, _b) -> None:
+        """Handle read dbX Metadata button clicks."""
+        if SupportedSources.is_cloud(self._sourcelist.value):
+            sel_obj = self._dircontent.value
+            if isinstance(sel_obj, CloudObj):
+                filename = sel_obj.filename()
+                files = {o.filename():o for o in self._dircontent.options}
+                dbx_meta = DbxMeta.get_dbx_like_files(files, filename)
+                self._data = {}
+                self._data_error = {}
+                for dbx_meta_sfx, fobj in dbx_meta:
+                    self._data[dbx_meta_sfx] = fobj.fetch_object(self._cloud)
+                    self._data_error[dbx_meta_sfx] = self._cloud.error
+
+
 
     def _show_dialog(self) -> None:
         """Show the dialog."""
@@ -1198,6 +1230,11 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         self._file_size_limit = limit
 
     @property
-    def data(self) -> bytes:
+    def data(self) -> Union[dict,bytes,None]:
         """Property getter."""
         return self._data
+
+    @property
+    def data_error(self) -> Union[dict,str,None]:
+        """Property getter."""
+        return self._data_error

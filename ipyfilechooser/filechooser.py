@@ -36,6 +36,7 @@ from .utils_sources import \
 from .utils_sources import CloudObj
 from .utils_s3 import S3, S3Obj
 from .utils_azure import AzureClient, AzureObj
+from .utils_dbx import DbxMeta
 
 
 class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods, too-many-ancestors, too-many-instance-attributes
@@ -167,14 +168,15 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             description=self._read_meta_desc,
             layout=Layout(
                 min_width='6em',
-                width='8em'
+                width='10em'
             )
         )
         self._download = Button(
             description=self._download_desc,
             layout=Layout(
                 min_width='6em',
-                width='8em'
+                width='8em',
+                display = 'none'
             )
         )
         self._title = HTML(
@@ -829,11 +831,11 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             sel_obj = self._dircontent.value
             if isinstance(sel_obj, CloudObj):
                 filename = sel_obj.filename()
-                files = {o.filename():o for o in self._dircontent.options}
+                files = {o.filename():o for n,o in self._dircontent.options}
                 dbx_meta = DbxMeta.get_dbx_like_files(files, filename)
                 self._data = {}
                 self._data_error = {}
-                for dbx_meta_sfx, fobj in dbx_meta:
+                for dbx_meta_sfx, fobj in dbx_meta.items():
                     self._data[dbx_meta_sfx] = fobj.fetch_object(self._cloud)
                     self._data_error[dbx_meta_sfx] = self._cloud.error
 

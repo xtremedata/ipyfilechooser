@@ -8,7 +8,7 @@ from urllib.parse import unquote, urlunparse, urlparse, ParseResult
 from botocore.exceptions import HTTPClientError, ClientError, EndpointConnectionError
 from boto3 import client, Session
 
-from .utils_sources import CloudClient, CloudObj
+from .utils_cloud import CloudClient, CloudObj
 
 #import traceback
 

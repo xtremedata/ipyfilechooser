@@ -33,7 +33,7 @@ from .utils_sources import \
         is_valid_source, \
         req_access_cred, \
         build_access_cred_widget
-from .utils_sources import CloudObj
+from .utils_cloud import CloudObj
 from .utils_s3 import S3, S3Obj
 from .utils_azure import AzureClient, AzureObj
 from .utils_dbx import DbxMeta
@@ -547,7 +547,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
 
                 self._pathlist.options = path.get_path_list()
                 self._pathlist.value = path
-                self._dircontent.options = path.get_dir_list(self._cloud)
+                self._dircontent.options = path.get_dir_list(self._cloud, filter_pattern=self._filter_pattern)
                 if not filename:
                     # cannot preselect to generate change events in every case
                     self._dircontent.value = None

@@ -854,11 +854,22 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
                         self._data[dbx_meta_sfx] = fobj.fetch_object(self._cloud)
                         self._data_error[dbx_meta_sfx] = self._cloud.error
             else:
-                pass
+                filename = self.selected_filename
+                filepath = self.selected_path
+                fnames = [self._map_disp_to_name[dname] for dname in self._dircontent.options]
+                files = {fname: fname for fname in fnames}
+                dbx_meta = DbxMeta.get_dbx_like_files(files, filename)
+                self._data = {}
+                self._data_error = {}
+                for dbx_meta_sfx, fname in dbx_meta.items():
+                    try:
+                        error, data = read_file(filepath, fname)
+                        self._data[dbx_meta_sfx] = data
+                        self._data_error[dbx_meta_sfx] = error
+                    except (ValueError,TypeError,KeyError) as ex:
+                        self._data_error[dbx_meta_sfx] = str(ex)
             # If shown, close the dialog and apply the selection
             self._process_selection()
-
-
 
     def _show_dialog(self) -> None:
         """Show the dialog."""

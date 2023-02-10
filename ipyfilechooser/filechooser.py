@@ -476,9 +476,9 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         if deactivate_dialog:
             self._select.disabled = False
             self._cancel.disabled = True
-            self._read.disabled = not is_valid_file
-            self._read_meta.disabled = False
-            self._download.disabled = not is_valid_file
+            self._read.disabled = True # not is_valid_file
+            self._read_meta.disabled = True # not is_valid_file
+            self._download.disabled = True # not is_valid_file
         elif is_valid_file:
             self._select.disabled = False
             self._cancel.disabled = False

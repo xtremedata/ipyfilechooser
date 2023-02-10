@@ -27,7 +27,8 @@ from .utils import \
         is_valid_filename, \
         get_drive_letters, \
         normalize_path, \
-        has_parent_path
+        has_parent_path, \
+        read_file
 from .utils_sources import \
         SupportedSources, \
         is_valid_source, \
@@ -800,6 +801,17 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         elif SupportedSources.is_cloud(self._sourcelist.value):
             self._on_filename_change_cloud(change)
 
+    def _process_selection(self) -> None:
+        """ Handles actions on selection/read/read dbX meta.
+        """
+        # Execute callback function
+        if self._callback is not None:
+            try:
+                self._callback(self)
+            except TypeError:
+                # Support previous behaviour of not passing self
+                self._callback()
+
     def _on_select_click(self, _b) -> None:
         """Handle select button clicks."""
         if self._gb.layout.display == 'none':
@@ -808,36 +820,43 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         else:
             # If shown, close the dialog and apply the selection
             self._apply_selection()
-
-            # Execute callback function
-            if self._callback is not None:
-                try:
-                    self._callback(self)
-                except TypeError:
-                    # Support previous behaviour of not passing self
-                    self._callback()
+            self._process_selection()
 
     def _on_read_click(self, _b) -> None:
         """Handle read button clicks."""
-        if SupportedSources.is_cloud(self._sourcelist.value):
-            sel_obj = self._dircontent.value
-            if isinstance(sel_obj, CloudObj):
-                self._data = sel_obj.fetch_object(self._cloud)
-                self._data_error = self._cloud.error
+        if self._gb.layout.display is None:
+            self._apply_selection()
+            if SupportedSources.is_cloud(self._sourcelist.value):
+                sel_obj = self._dircontent.value
+                if isinstance(sel_obj, CloudObj):
+                    self._data = sel_obj.fetch_object(self._cloud)
+                    self._data_error = self._cloud.error
+            else:
+                error, data = read_file(self.selected_path, self.selected_filename)
+                self._data = data
+                self._data_error = error
+            # If shown, close the dialog and apply the selection
+            self._process_selection()
 
     def _on_read_meta_click(self, _b) -> None:
         """Handle read dbX Metadata button clicks."""
-        if SupportedSources.is_cloud(self._sourcelist.value):
-            sel_obj = self._dircontent.value
-            if isinstance(sel_obj, CloudObj):
-                filename = sel_obj.filename()
-                files = {o.filename():o for n,o in self._dircontent.options}
-                dbx_meta = DbxMeta.get_dbx_like_files(files, filename)
-                self._data = {}
-                self._data_error = {}
-                for dbx_meta_sfx, fobj in dbx_meta.items():
-                    self._data[dbx_meta_sfx] = fobj.fetch_object(self._cloud)
-                    self._data_error[dbx_meta_sfx] = self._cloud.error
+        if self._gb.layout.display is None:
+            self._apply_selection()
+            if SupportedSources.is_cloud(self._sourcelist.value):
+                sel_obj = self._dircontent.value
+                if isinstance(sel_obj, CloudObj):
+                    filename = sel_obj.filename()
+                    files = {o.filename():o for n,o in self._dircontent.options}
+                    dbx_meta = DbxMeta.get_dbx_like_files(files, filename)
+                    self._data = {}
+                    self._data_error = {}
+                    for dbx_meta_sfx, fobj in dbx_meta.items():
+                        self._data[dbx_meta_sfx] = fobj.fetch_object(self._cloud)
+                        self._data_error[dbx_meta_sfx] = self._cloud.error
+            else:
+                pass
+            # If shown, close the dialog and apply the selection
+            self._process_selection()
 
 
 

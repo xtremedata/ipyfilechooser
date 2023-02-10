@@ -137,3 +137,17 @@ def normalize_path(path: str) -> str:
         raise InvalidPathError(path)
 
     return normalized_path
+
+
+def read_file(filepath: str, filename: str) -> bytes:
+    """ Reads requested file.
+    """
+    data = None
+    error= None
+
+    try:
+        with open(os.path.join(filepath, filename), 'rb') as filed:
+            data = filed.read()
+    except IOError as ex:
+        error = f"Reading file:{filename[:10]} error:{ex}"
+    return (error, data)

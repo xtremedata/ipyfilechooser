@@ -349,22 +349,18 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
     def _validate_cred(self) -> bool:
         try:
             self._deactivate()
-            print("### deactivated")
             res = self._cloud is not None \
                     and self._cloud.init_cred( \
                     (self._access_cred.children[0].value, \
                     self._access_cred.children[1].value)) \
                     and self._cloud.validate_cred()
-            print("### checked creds")
         except Exception as ex:
             warnings.warn(f"Failed to validate access credential: {ex}")
             return False
         else:
             return res
         finally:
-            print("### activating")
             self._activate()
-            print("### activated")
 
     def _show_access_cred(self, enable: Optional[bool] = None) -> None:
         """ Disables(hides)/enables(shows) access credentials widgets.
@@ -414,6 +410,23 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         self.reset()
         self._show_access_cred(True)
         self._update_gridbox()
+
+    def _process_access_cred_change(self) -> None:
+        """Processes cloud storage access credentials change."""
+        self._clear_form_values(clear_access_cred=False)
+        # Fail early - test connection
+        if self._validate_cred():
+            self._set_form_values( \
+                    self._sourcelist.value, \
+                    None, \
+                    None)
+        elif not req_access_cred(self._sourcelist.value):
+            self._set_form_values( \
+                    self._default_source, \
+                    self._default_path, \
+                    self._default_filename)
+        else:
+            self._cloud_storage_error("Invalid Credentials or connection error")
 
     def _init_s3(self, client_enum: Enum) -> None:
         """ Creates/initializes the S3 client.
@@ -739,22 +752,14 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
     def _on_sourcelist_select(self, change: Mapping[Enum, Enum]) -> None: # pylint: disable=unused-argument
         """Handles selecting a storage source."""
         self._process_source_change()
+        if self._has_access_cred():
+            self._process_access_cred_change()
 
     def _on_access_cred_change(self, change: Mapping[Enum, Enum]) -> None: # pylint: disable=unused-argument
         """Handles changing storage source access credentials."""
-        print("### change:", change)
-        print("acc cred: '", self._access_cred.children[0].value, "'")
         if self._has_access_cred():
             if self._access_cred_changed():
-                self._clear_form_values(clear_access_cred=False)
-                # Fail early - test connection
-                if self._validate_cred():
-                    self._set_form_values( \
-                            self._sourcelist.value, \
-                            None, \
-                            None)
-                else:
-                    self._cloud_storage_error("Invalid Credentials or connection error")
+                self._process_access_cred_change()
 
     def _on_pathlist_select_local(self, change: Mapping[str, str]) -> None:
         """Handle selecting a path entry."""

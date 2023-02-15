@@ -242,7 +242,6 @@ class S3(CloudClient): # pylint: disable=too-many-public-methods
     def validate_cred(self) -> Union[None, bool]:
         """Returns true when authentication is valid."""
         try:
-            print("### has_cred:", bool(self.has_cred()), " - '", self.key_name, "'")
             sts = client('sts')
             sts = client('sts') if not self.has_cred() \
                     else client('sts', \
@@ -250,10 +249,8 @@ class S3(CloudClient): # pylint: disable=too-many-public-methods
                     aws_secret_access_key=self.key_secret)
             sts.get_caller_identity()
         except EndpointConnectionError as ex:
-            print("1ex:", ex)
             return None
         except ClientError as ex: # pylint: disable=bare-except
-            print("2ex:", ex)
             return False
         else:
             return True

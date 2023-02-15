@@ -30,8 +30,13 @@ class CloudClient:
         self._error = None
 
 
-    def init_cred(self, params: tuple): # pylint: disable=no-self-use
+    def init_cred(self, params: tuple) -> bool: # pylint: disable=no-self-use
         """ Initializes credential attributes.
+        """
+        raise RuntimeError("Not implemented")
+
+    def restore_cred(self, params: Union[tuple,list]): # pylint: disable=no-self-use
+        """ Restores credential attributes.
         """
         raise RuntimeError("Not implemented")
 

@@ -140,7 +140,7 @@ class S3(CloudClient): # pylint: disable=too-many-public-methods
         self._key_secret = None
 
 
-    def init_cred(self, params: tuple):
+    def init_cred(self, params: tuple) -> bool:
         """ Initializes credential attributes.
         """
         try:
@@ -149,6 +149,18 @@ class S3(CloudClient): # pylint: disable=too-many-public-methods
             self.key_secret = key_secret
         except ValueError as ex:
             raise RuntimeError(f"Invalid arguments for init_cred for {type(self).__name__}") from ex
+        else:
+            return True
+
+    def restore_cred(self, params: Union[tuple,list]):
+        """ Restores credential attributes.
+        """
+        try:
+            params[0].value = self.key_name
+            params[1].value = self.key_secret
+        except IndexError as ex:
+            raise RuntimeError( \
+                    f"Invalid arguments for restore_cred for {type(self).__name__}") from ex
 
     @property
     def key_name(self):
@@ -215,7 +227,7 @@ class S3(CloudClient): # pylint: disable=too-many-public-methods
 
     def has_cred(self):
         """Returns true when authentication is defined."""
-        return self.key_name and self.key_secret
+        return bool(self.key_name) and bool(self.key_secret)
 
     def check_cred_changed(self, access_cred: []) -> bool:
         """ Returns true when access credentials has changed.
@@ -230,15 +242,18 @@ class S3(CloudClient): # pylint: disable=too-many-public-methods
     def validate_cred(self) -> Union[None, bool]:
         """Returns true when authentication is valid."""
         try:
+            print("### has_cred:", bool(self.has_cred()), " - '", self.key_name, "'")
             sts = client('sts')
             sts = client('sts') if not self.has_cred() \
                     else client('sts', \
                     aws_access_key_id=self.key_name, \
                     aws_secret_access_key=self.key_secret)
             sts.get_caller_identity()
-        except EndpointConnectionError:
+        except EndpointConnectionError as ex:
+            print("1ex:", ex)
             return None
-        except ClientError: # pylint: disable=bare-except
+        except ClientError as ex: # pylint: disable=bare-except
+            print("2ex:", ex)
             return False
         else:
             return True

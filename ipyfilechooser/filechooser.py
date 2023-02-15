@@ -100,6 +100,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         self._callback: Optional[Callable] = None
         self._local = None # A placeholder to move local paths/status into a separate object
         self._cloud = None
+        self._cloud_clients = {}
         self._map_name_to_disp = None
         self._map_disp_to_name = None
         self._file_size_limit = 1 << 17 # 127kB
@@ -345,6 +346,26 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         """
         return f"access_cred_{self._sourcelist.value.name}"
 
+    def _validate_cred(self) -> bool:
+        try:
+            self._deactivate()
+            print("### deactivated")
+            res = self._cloud is not None \
+                    and self._cloud.init_cred( \
+                    (self._access_cred.children[0].value, \
+                    self._access_cred.children[1].value)) \
+                    and self._cloud.validate_cred()
+            print("### checked creds")
+        except Exception as ex:
+            warnings.warn(f"Failed to validate access credential: {ex}")
+            return False
+        else:
+            return res
+        finally:
+            print("### activating")
+            self._activate()
+            print("### activated")
+
     def _show_access_cred(self, enable: Optional[bool] = None) -> None:
         """ Disables(hides)/enables(shows) access credentials widgets.
             All widgets are activates/deactivated as well.
@@ -388,28 +409,37 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         self._show_access_cred(False)
         self._access_cred = build_access_cred_widget(
             self._sourcelist.value,
-            self._access_cred_name()
-        )
+            self._access_cred_name())
         # Reset the dialog
         self.reset()
         self._show_access_cred(True)
         self._update_gridbox()
 
-    def _init_s3(self) -> None:
+    def _init_s3(self, client_enum: Enum) -> None:
         """ Creates/initializes the S3 client.
         """
-        self._cloud = S3()
-        self._cloud.init_cred( \
-                (self._access_cred.children[0].value, \
-                self._access_cred.children[1].value))
+        try:
+            self._cloud = self._cloud_clients[client_enum]
+            self._cloud.restore_cred(self._access_cred.children)
+        except KeyError:
+            self._cloud_clients[client_enum] = S3()
+            self._cloud = self._cloud_clients[client_enum]
+            self._cloud.init_cred( \
+                    (self._access_cred.children[0].value, \
+                    self._access_cred.children[1].value))
 
-    def _init_azure(self) -> None:
+    def _init_azure(self, client_enum: Enum) -> None:
         """ Creates/initializes the Azure client.
         """
-        self._cloud = AzureClient()
-        self._cloud.init_cred( \
-                (self._access_cred.children[0].value, \
-                self._access_cred.children[1].value))
+        try:
+            self._cloud = self._cloud_clients[client_enum]
+            self._cloud.restore_cred(self._access_cred.children)
+        except KeyError:
+            self._cloud_clients[client_enum] = AzureClient()
+            self._cloud = self._cloud_clients[client_enum]
+            self._cloud.init_cred( \
+                    (self._access_cred.children[0].value, \
+                    self._access_cred.children[1].value))
 
     def _init_cloud(self) -> None:
         """ Creates/initializes the cloud storage client.
@@ -417,9 +447,9 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         if self._sourcelist.value == SupportedSources.LOCAL:
             self._cloud = None
         elif self._sourcelist.value == SupportedSources.AWS:
-            self._init_s3()
+            self._init_s3(self._sourcelist.value)
         elif self._sourcelist.value == SupportedSources.AZURE:
-            self._init_azure()
+            self._init_azure(self._sourcelist.value)
         else:
             warnings.warn(f"Storage source '{self._sourcelist.value:.10}' not implemented/uknown")
 
@@ -429,11 +459,6 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         obj = self._pathlist.value
         source = self._sourcelist.value
         cloud = self._cloud
-        #return isinstance(obj, str) if source == SupportedSources.LOCAL \
-        #        else isinstance(obj, S3Obj) and isinstance(cloud, S3) if source == SupportedSources.AWS \
-        #        else isinstance(obj, AzureObj) and isinstance(cloud, AzureClient) if source == SupportedSources.AZURE \
-        #        else obj.check_cloud(path) if path and obj \
-        #        else False
         if obj is None:
             return True
         if source == SupportedSources.LOCAL and not isinstance(obj, str) \
@@ -457,7 +482,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
                 child.value = ''
             self._observe_access_cred(True)
 
-    def _clear_form_values(self) -> None:
+    def _clear_form_values(self, clear_access_cred: bool) -> None:
         """ Clears values for widgets presenting directories and files on source change.
             Called on:
             - storage source change
@@ -467,7 +492,42 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         self._filename.value = ''
         self._dircontent.options = []
         self._label.value = self._LBL_TEMPLATE.format(self._LBL_NOFILE, 'black')
-        self._init_cloud()
+        if clear_access_cred:
+            self._clear_access_cred()
+            self._init_cloud()
+
+    def _deactivate(self) -> None:
+        """ Deactivates triggers.
+        """
+        self._sourcelist.disabled = True
+        self._pathlist.disabled = True
+        self._dircontent.disabled = True
+        self._observe_sourcelist(enable=False)
+        try:
+            self._pathlist.unobserve(self._on_pathlist_select, names='value')
+        except (KeyError, ValueError):
+            pass
+        try:
+            self._dircontent.unobserve(self._on_dircontent_select, names='value')
+        except (KeyError, ValueError):
+            pass
+        try:
+            self._filename.unobserve(self._on_filename_change, names='value')
+        except (KeyError, ValueError):
+            pass
+        self._observe_access_cred(enable=False)
+
+    def _activate(self) -> None:
+        """ Activate triggers.
+        """
+        self._observe_sourcelist()
+        self._pathlist.observe(self._on_pathlist_select, names='value')
+        self._dircontent.observe(self._on_dircontent_select, names='value')
+        self._filename.observe(self._on_filename_change, names='value')
+        self._observe_access_cred()
+        self._sourcelist.disabled = False
+        self._pathlist.disabled = False
+        self._dircontent.disabled = False
 
     def _update_widgets_on_set(self, is_valid_file: bool, deactivate_dialog: bool=False) -> None:
         """ Updates widgets on change.
@@ -513,8 +573,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             elif not self._check_integrity(path):
                 warnings.warn("Runtime error: invalid object for cloud storage" \
                         + f": {type(path).__name__}:'{path:10}'")
-                self._clear_access_cred()
-                self._clear_form_values()
+                self._clear_form_values(clear_access_cred=True)
                 path = self._cloud.get_master_root()
                 filename = ''
                 proceed = False
@@ -533,8 +592,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
                     # obj = root_obj.find_path(path, self._cloud)
                     pass 
                 if not obj:
-                    self._clear_access_cred()
-                    self._clear_form_values()
+                    self._clear_form_values(clear_access_cred=True)
                     proceed = False
                     obj = root_obj
                 # restoring pre-change selection or start from root if not found
@@ -662,36 +720,21 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
 
     def _set_form_values(self, source: str, path: Union[str,CloudObj], filename: str) -> None:
         """Set the form values."""
-        # Disable triggers to prevent selecting an entry in the Select
-        # box from automatically triggering a new event.
-        self._observe_sourcelist(enable=False)
         try:
-            self._pathlist.unobserve(self._on_pathlist_select, names='value')
-        except (KeyError, ValueError):
-            pass
-        try:
-            self._dircontent.unobserve(self._on_dircontent_select, names='value')
-        except (KeyError, ValueError):
-            pass
-        try:
-            self._filename.unobserve(self._on_filename_change, names='value')
-        except (KeyError, ValueError):
-            pass
-        self._observe_access_cred(enable=False)
-
-        if self._sourcelist.value == SupportedSources.LOCAL:
-            self._set_form_values_local(path, filename)
-        elif SupportedSources.is_cloud(self._sourcelist.value):
-            self._set_form_values_cloud(path, filename)
-        else:
-            warnings.warn(f"Storage source '{source.name:.10}' not implemented/uknown")
-
-        # Reenable triggers
-        self._observe_sourcelist()
-        self._pathlist.observe(self._on_pathlist_select, names='value')
-        self._dircontent.observe(self._on_dircontent_select, names='value')
-        self._filename.observe(self._on_filename_change, names='value')
-        self._observe_access_cred()
+            # Disable triggers to prevent selecting an entry in the Select
+            # box from automatically triggering a new event.
+            self._deactivate()
+            if self._sourcelist.value == SupportedSources.LOCAL:
+                self._set_form_values_local(path, filename)
+            elif SupportedSources.is_cloud(self._sourcelist.value):
+                self._set_form_values_cloud(path, filename)
+            else:
+                warnings.warn(f"Storage source '{source.name:.10}' not implemented/uknown")
+        except Exception as ex:
+            warnings.warn(f"Failed to set form values: {ex}")
+        finally:
+            # Reenable triggers
+            self._activate()
 
     def _on_sourcelist_select(self, change: Mapping[Enum, Enum]) -> None: # pylint: disable=unused-argument
         """Handles selecting a storage source."""
@@ -699,11 +742,13 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
 
     def _on_access_cred_change(self, change: Mapping[Enum, Enum]) -> None: # pylint: disable=unused-argument
         """Handles changing storage source access credentials."""
+        print("### change:", change)
+        print("acc cred: '", self._access_cred.children[0].value, "'")
         if self._has_access_cred():
             if self._access_cred_changed():
-                self._clear_form_values()
+                self._clear_form_values(clear_access_cred=False)
                 # Fail early - test connection
-                if self._cloud.validate_cred():
+                if self._validate_cred():
                     self._set_form_values( \
                             self._sourcelist.value, \
                             None, \
@@ -1003,8 +1048,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             self._apply_selection()
 
         # Clear widgets
-        self._clear_access_cred()
-        self._clear_form_values()
+        self._clear_form_values(clear_access_cred=True)
 
     def refresh(self) -> None:
         """Re-render the form."""

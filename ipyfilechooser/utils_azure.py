@@ -38,9 +38,10 @@ class AzureClient(CloudClient):
         self._connection_str = None
         self._account_name = None
         self._account_key = None
+        self._timeout = 5
 
 
-    def init_cred(self, params: tuple):
+    def init_cred(self, params: tuple) -> bool:
         """ Initializes credential attributes.
         """
         try:
@@ -49,7 +50,18 @@ class AzureClient(CloudClient):
             self.account_key = account_key
         except ValueError as ex:
             raise RuntimeError(f"Invalid arguments for init_cred for {type(self).__name__}") from ex
+        else:
+            return True
 
+    def restore_cred(self, params: Union[tuple,list]):
+        """ Restores credential attributes.
+        """
+        try:
+            params[0].value = self.account_name
+            params[1].value = self.account_key
+        except IndexError as ex:
+            raise RuntimeError( \
+                    f"Invalid arguments for restore_cred for {type(self).__name__}") from ex
 
     def has_cred(self):
         """Returns true when authentication is defined."""
@@ -112,6 +124,11 @@ class AzureClient(CloudClient):
             self._azure_client = BlobServiceClient.from_connection_string(self.connection_str)
         return self._azure_client
 
+    @property
+    def timeout(self):
+        """Property getter."""
+        return self._timeout
+
     def get_container_client(self, container: str):
         """Creates and returns requested container client."""
         return ContainerClient.from_connection_string(self.connection_str, \
@@ -142,13 +159,12 @@ class AzureClient(CloudClient):
         """
         self._error = None
         try:
-            res = AzureRes(self.client.list_containers())
+            res = AzureRes(self.client.list_containers(timeout=self._timeout))
+            res_names = res.get_containers_names()
         except (AzureError, HttpResponseError) as ex: # pylint: disable=bare-except
             self._error = f"Failed Azure list_containers: {ex}"
             return None
-
         else:
-            res_names = res.get_containers_names()
             if res_names is None:
                 self._error = f"Failed to parse response to list_containers for: {parent[:20]}"
             return res_names
@@ -160,12 +176,11 @@ class AzureClient(CloudClient):
         self._error = None
         try:
             res = AzureRes(self.get_container_client(container).list_blobs())
+            res_names = res.get_objects_names()
         except (AzureError, HttpResponseError) as ex: # pylint: disable=bare-except
             self._error = f"Failed Azure list_blobs: {ex}"
             return None
-
         else:
-            res_names = res.get_objects_names()
             if res_names is None:
                 self._error = f"Failed to parse response to list_blobs for: /{container[:20]}.../{prefix[:20]}..." # pylint: disable=line-too-long
             return res_names
@@ -177,11 +192,11 @@ class AzureClient(CloudClient):
         self._error = None
         try:
             res = AzureRes(self.get_blob_client(container, obj_path).download_blob())
+            data = res.get_object_data()
         except (AzureError, HttpResponseError) as ex: # pylint: disable=bare-except
             self._error = f"Failed Azure get_object: {ex}"
             return None
         else:
-            data = res.get_object_data()
             if data is None:
                 self._error = f"Failed to parse response to get_object for: /{container[:20]}/{obj_path[:20]}..." # pylint: disable=line-too-long
             return data

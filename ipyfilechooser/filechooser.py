@@ -189,10 +189,10 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             self._title.layout.display = 'none'
 
         # Handling default path due to possible different sources - needs widgets
-        normalized_path = self._normalize_path(path, source)
+        normalized_path = self._normalize_path(path, self._default_source)
         if self._check_integrity(normalized_path):
             self._default_path = normalized_path
-        elif SupportedSources.is_cloud(source):
+        elif SupportedSources.is_cloud(self._default_source):
             self._default_path = ''
         else:
             self._default_path = normalized_path
@@ -258,11 +258,8 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         )
 
         # Call setter to set initial form values
-        self._set_form_values( \
-                self._default_source, \
-                self._default_path, \
-                self._default_filename
-        )
+        self._init_cloud()
+        self._process_access_cred_change()
 
         # Use the defaults as the selected values
         if self._select_default:
@@ -537,8 +534,9 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         self._pathlist.observe(self._on_pathlist_select, names='value')
         self._dircontent.observe(self._on_dircontent_select, names='value')
         self._filename.observe(self._on_filename_change, names='value')
-        self._observe_access_cred()
-        self._sourcelist.disabled = False
+        if req_access_cred(self._sourcelist.value):
+            self._observe_access_cred()
+        self._sourcelist.disabled = self._disable_source
         self._pathlist.disabled = False
         self._dircontent.disabled = False
 

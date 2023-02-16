@@ -248,9 +248,9 @@ class S3(CloudClient): # pylint: disable=too-many-public-methods
                     aws_access_key_id=self.key_name, \
                     aws_secret_access_key=self.key_secret)
             sts.get_caller_identity()
-        except EndpointConnectionError as ex:
+        except EndpointConnectionError:
             return None
-        except ClientError as ex: # pylint: disable=bare-except
+        except ClientError:
             return False
         else:
             return True

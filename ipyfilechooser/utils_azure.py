@@ -48,6 +48,8 @@ class AzureClient(CloudClient):
             account_name, account_key = params
             self.account_name = account_name
             self.account_key = account_key
+            self._azure_client = None
+            self._connection_str = None
         except ValueError as ex:
             raise RuntimeError(f"Invalid arguments for init_cred for {type(self).__name__}") from ex
         else:

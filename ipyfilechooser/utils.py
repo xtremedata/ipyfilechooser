@@ -49,6 +49,9 @@ def strip_parent_path(path: str, parent_path: Optional[str]) -> str:
 
 def match_item(item: str, filter_pattern: Sequence[str]) -> bool:
     """Check if a string matches one or more fnmatch patterns."""
+    if not filter_pattern:
+        return True
+
     if isinstance(filter_pattern, str):
         filter_pattern = [filter_pattern]
 

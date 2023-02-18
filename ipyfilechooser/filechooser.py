@@ -899,8 +899,11 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
                     self._data = {}
                     self._data_error = {}
                     for dbx_meta_sfx, fobj in dbx_meta.items():
-                        self._data[dbx_meta_sfx] = fobj.fetch_object(self._cloud)
-                        self._data_error[dbx_meta_sfx] = self._cloud.error
+                        if dbx_meta_sfx == DbxMeta.META_LABEL:
+                            self._data[dbx_meta_sfx] = fobj
+                        else:
+                            self._data[dbx_meta_sfx] = fobj.fetch_object(self._cloud)
+                            self._data_error[dbx_meta_sfx] = self._cloud.error
             else:
                 filename = self.selected_filename
                 filepath = self.selected_path
@@ -910,12 +913,15 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
                 self._data = {}
                 self._data_error = {}
                 for dbx_meta_sfx, fname in dbx_meta.items():
-                    try:
-                        error, data = read_file(filepath, fname)
-                        self._data[dbx_meta_sfx] = data
-                        self._data_error[dbx_meta_sfx] = error
-                    except (ValueError,TypeError,KeyError) as ex:
-                        self._data_error[dbx_meta_sfx] = str(ex)
+                    if dbx_meta_sfx == DbxMeta.META_LABEL:
+                        self._data[dbx_meta_sfx] = fname
+                    else:
+                        try:
+                            error, data = read_file(filepath, fname)
+                            self._data[dbx_meta_sfx] = data
+                            self._data_error[dbx_meta_sfx] = error
+                        except (ValueError,TypeError,KeyError) as ex:
+                            self._data_error[dbx_meta_sfx] = str(ex)
             # If shown, close the dialog and apply the selection
             self._process_selection()
 

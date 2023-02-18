@@ -15,6 +15,7 @@ class DbxMeta:
     DBX_EXT = ".json"
     DBX_SFX = ('meta','histo','pattern','rank','summary','topn')
     DBX_SFX_SET = set(DBX_SFX)
+    META_LABEL = 'label'
 
     @classmethod
     def get_dbx_suffixes(cls) -> tuple:
@@ -78,4 +79,5 @@ class DbxMeta:
         else:
             for fname, fobj in files.items():
                 cls.check_for_dbx_meta_member(fileroot, fname, fobj, res)
+            res[cls.META_LABEL] = fileroot
         return res

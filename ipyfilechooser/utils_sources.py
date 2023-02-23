@@ -2,7 +2,7 @@
 """
 
 from enum import Enum, unique
-from ipywidgets import Layout, VBox, Text, Password
+from ipywidgets import Layout, VBox, HBox, Text, Password
 
 
 @unique
@@ -53,24 +53,31 @@ def get_access_cred_widgets(source: Enum) -> []:
     if source == SupportedSources.LOCAL:
         return ()
     if source == SupportedSources.AWS:
-        return [
-                Text(
-                    description="AWS Access Key ID:",
-                    value='',
-                    disabled=False,
-                    placeholder='provide AWS access key ID',
-                    style={'description_width': 'auto'},
-                    layout=get_access_cred_layout(source, 'object')
-                ),
-                Password(
-                    description="AWS Access Key Secret:",
-                    value='',
-                    disabled=False,
-                    placeholder='provide AWS access key secret',
-                    style={'description_width': 'auto'},
-                    layout=get_access_cred_layout(source, 'secret')
-                )
-        ]
+        return VBox(
+                   children = [
+                       HBox(
+                           children = [
+                               Text(
+                               description="AWS Access Key ID:",
+                               value='',
+                               disabled=False,
+                               placeholder='provide AWS access key ID',
+                               style={'description_width': 'auto'},
+                               layout=get_access_cred_layout(source, 'object')
+                               ),
+                           Password(
+                               description="AWS Access Key Secret:",
+                               value='',
+                               disabled=False,
+                               placeholder='provide AWS access key secret',
+                               style={'description_width': 'auto'},
+                               layout=get_access_cred_layout(source, 'secret')
+                               )
+                           ],
+                           layout=get_access_cred_layout(source, 'container')
+                       )
+                   ]
+               )
     if source == SupportedSources.AZURE:
         return [
                 Text(

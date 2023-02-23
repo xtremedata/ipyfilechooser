@@ -101,6 +101,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         self._local = None # A placeholder to move local paths/status into a separate object
         self._cloud = None
         self._cloud_clients = {}
+        self._sources_backup = {}
         self._map_name_to_disp = None
         self._map_disp_to_name = None
         self._file_size_limit = 1 << 17 # 127kB
@@ -397,14 +398,32 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             except (KeyError, ValueError):
                 pass
 
-    def _process_source_change(self) -> None:
+    def _backup_source(self, old: Enum) -> None:
+        """ Saves/restores selection on source change.
+        """
+        if old:
+            if old == SupportedSources.LOCAL:
+                path = self._pathlist.value
+                filename = self._dircontent.value
+            else:
+                path = self._pathlist.value.get_cloud_path_with_bucket()
+                filename = self._dircontent.value.filename()
+            self._sources_backup[old] = (path, filename)
+
+    def _process_source_change(self, old: Union[Enum,None] = None, new: Union[Enum,None] = None) -> None:
         """Processes storage source change."""
         self._show_access_cred(False)
         self._access_cred = build_access_cred_widget(
             self._sourcelist.value,
             self._access_cred_name())
         # Reset the dialog
-        self.reset()
+        path, filename = (None, None)
+        self._backup_source(old)
+        try:
+            path, filename = self._sources_backup[new]
+        except (TypeError, KeyError):
+            pass
+        self.reset(path=path, filename=filename)
         self._show_access_cred(True)
         self._update_gridbox()
 
@@ -749,7 +768,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
 
     def _on_sourcelist_select(self, change: Mapping[Enum, Enum]) -> None: # pylint: disable=unused-argument
         """Handles selecting a storage source."""
-        self._process_source_change()
+        self._process_source_change(change['old'], change['new'])
         if self._has_access_cred():
             self._process_access_cred_change()
 

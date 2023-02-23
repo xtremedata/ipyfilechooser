@@ -492,6 +492,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             Called on:
             - storage source change
             - access credentials change
+            - reset
         """
         self._pathlist.options = []
         self._filename.value = ''
@@ -1042,6 +1043,9 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         if filename is not None:
             self._default_filename = filename
 
+        # Clear widgets
+        self._clear_form_values(clear_access_cred=True)
+
         self._set_form_values( \
                 self._sourcelist.value, \
                 self._default_path, \
@@ -1050,9 +1054,6 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         # Use the defaults as the selected values
         if self._select_default:
             self._apply_selection()
-
-        # Clear widgets
-        self._clear_form_values(clear_access_cred=True)
 
     def refresh(self) -> None:
         """Re-render the form."""

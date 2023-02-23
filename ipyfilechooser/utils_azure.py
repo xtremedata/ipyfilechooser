@@ -38,6 +38,7 @@ class AzureClient(CloudClient):
         self._connection_str = None
         self._account_name = None
         self._account_key = None
+        self._no_key = None
         self._timeout = 5
 
 
@@ -45,9 +46,10 @@ class AzureClient(CloudClient):
         """ Initializes credential attributes.
         """
         try:
-            account_name, account_key = params
+            account_name, account_key, no_key = params
             self.account_name = account_name
             self.account_key = account_key
+            self.no_key = no_key
             self._azure_client = None
             self._connection_str = None
         except ValueError as ex:
@@ -61,32 +63,35 @@ class AzureClient(CloudClient):
         try:
             params[0].value = self.account_name
             params[1].value = self.account_key
+            params[2].value = self.no_key
         except IndexError as ex:
             raise RuntimeError( \
                     f"Invalid arguments for restore_cred for {type(self).__name__}") from ex
 
     def has_cred(self):
         """Returns true when authentication is defined."""
-        return self.account_name and self.account_key
+        return self.account_name and (self.account_key or self.no_key)
 
     def check_cred_changed(self, access_cred: []) -> bool:
         """ Returns true when access credentials has changed.
         """
         try:
-            account_name, account_key = access_cred
+            account_name, account_key, no_key = access_cred
         except ValueError:
             return False
         else:
-            return account_name != self.account_name or account_key != self.account_key
+            return account_name != self.account_name \
+                    or account_key != self.account_key \
+                    or no_key != self.no_key
 
     def validate_cred(self) -> Union[None, bool]:
         """Returns true when authentication is valid."""
         try:
             self.client
-        except AzureError: # pylint: disable=bare-except
-            return None
         except HttpResponseError: # pylint: disable=bare-except
             return False
+        except AzureError: # pylint: disable=bare-except
+            return None
         else:
             return True
 
@@ -113,11 +118,22 @@ class AzureClient(CloudClient):
     @property
     def account_key(self) -> str:
         """Property getter."""
-        return self._account_key
+        return '' if self._no_key else self._account_key
     @account_key.setter
     def account_key(self, key: str):
         """Property setter."""
         self._account_key = key
+
+    @property
+    def no_key(self) -> str:
+        """Property getter."""
+        return bool(self._no_key)
+    @no_key.setter
+    def no_key(self, no_key: str):
+        """Property setter."""
+        self._no_key = no_key
+        if self._no_key:
+            self._account_key = None
 
     @property
     def client(self):
@@ -149,6 +165,7 @@ class AzureClient(CloudClient):
         self.reload()
         self._account_name = None
         self._account_key = None
+        self._no_key = None
 
     def reload(self):
         """ Reloads all Azure clients.

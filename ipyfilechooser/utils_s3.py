@@ -138,15 +138,17 @@ class S3(CloudClient): # pylint: disable=too-many-public-methods
         self._resource = None
         self._key_name = None
         self._key_secret = None
+        self._no_secret = None
 
 
     def init_cred(self, params: tuple) -> bool:
         """ Initializes credential attributes.
         """
         try:
-            key_name, key_secret = params
+            key_name, key_secret, no_secret = params
             self.key_name = key_name
             self.key_secret = key_secret
+            self.no_secret = no_secret
         except ValueError as ex:
             raise RuntimeError(f"Invalid arguments for init_cred for {type(self).__name__}") from ex
         else:
@@ -158,6 +160,7 @@ class S3(CloudClient): # pylint: disable=too-many-public-methods
         try:
             params[0].value = self.key_name
             params[1].value = self.key_secret
+            params[2].value = self.no_secret
         except IndexError as ex:
             raise RuntimeError( \
                     f"Invalid arguments for restore_cred for {type(self).__name__}") from ex
@@ -174,11 +177,22 @@ class S3(CloudClient): # pylint: disable=too-many-public-methods
     @property
     def key_secret(self):
         """Property getter."""
-        return self._key_secret
+        return '' if self._no_secret else self._key_secret
     @key_secret.setter
     def key_secret(self, key_secret):
         """Property setter."""
         self._key_secret = key_secret
+
+    @property
+    def no_secret(self):
+        """Property getter."""
+        return bool(self._no_secret)
+    @no_secret.setter
+    def no_secret(self, no_secret):
+        """Property setter."""
+        self._no_secret = no_secret
+        if self._no_secret:
+            self._key_secret = None
 
     @property
     def client(self):
@@ -214,6 +228,7 @@ class S3(CloudClient): # pylint: disable=too-many-public-methods
         self.reload()
         self._key_name = None
         self._key_secret = None
+        self._no_secret = None
         #self._current_user = current_user.id
 
 
@@ -227,17 +242,19 @@ class S3(CloudClient): # pylint: disable=too-many-public-methods
 
     def has_cred(self):
         """Returns true when authentication is defined."""
-        return bool(self.key_name) and bool(self.key_secret)
+        return bool(self.key_name) and (bool(self.key_secret) or bool(self.no_secret))
 
     def check_cred_changed(self, access_cred: []) -> bool:
         """ Returns true when access credentials has changed.
         """
         try:
-            key_id, key_secret = access_cred
+            key_id, key_secret, no_secret = access_cred
         except ValueError:
             return False
         else:
-            return key_id != self.key_name or key_secret != self.key_secret
+            return key_id != self.key_name \
+                    or key_secret != self.key_secret \
+                    or no_secret != self.no_secret
 
     def validate_cred(self) -> Union[None, bool]:
         """Returns true when authentication is valid."""

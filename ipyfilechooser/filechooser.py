@@ -31,9 +31,8 @@ from .utils import \
         read_file
 from .utils_sources import \
         SupportedSources, \
-        is_valid_source, \
-        req_access_cred, \
-        build_access_cred_widget
+        AccCred, \
+        is_valid_source
 from .utils_cloud import CloudObj
 from .utils_s3 import S3, S3Obj
 from .utils_azure import AzureClient, AzureObj
@@ -69,7 +68,10 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             **kwargs): # pylint: disable=too-many-arguments, too-many-locals, too-many-statements
         """Initialize FileChooser object."""
         # Check if path and sandbox_path align
-        if sandbox_path and not self._has_parent_path(self._normalize_path(path, source), self._normalize_path(sandbox_path, source), source):
+        if sandbox_path and not self._has_parent_path( \
+                self._normalize_path(path, source), \
+                self._normalize_path(sandbox_path, source), \
+                source):
             raise ParentPathError(path, sandbox_path)
 
         # Verify the filename is valid
@@ -119,7 +121,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
                 grid_area='sourcelist'
             )
         )
-        self._access_cred = build_access_cred_widget(
+        self._access_cred = AccCred.create(
             self._default_source,
             self._access_cred_name()
         )
@@ -222,7 +224,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         # All GridBox children with membership conditions
         self._all_gb_children = {
                 self._get_sourcelist: lambda: True,
-                self._get_access_cred: lambda: req_access_cred(self._sourcelist.value),
+                self._get_access_cred: lambda: self._sourcelist.value.req_access_cred(),
                 self._get_pathlist: lambda: True,
                 self._get_filename: lambda: not self._show_only_dirs,
                 self._get_dircontent: lambda: True
@@ -281,7 +283,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
     def _get_sourcelist(self) -> Widget:
         return self._sourcelist
     def _get_access_cred(self) -> Widget:
-        return self._access_cred
+        return self._access_cred.widget
     def _get_pathlist(self) -> Widget:
         return self._pathlist
     def _get_filename(self) -> Widget:
@@ -296,8 +298,8 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             - layout.grid_template_areas
         """
         # disabling widget
-        access_cred = self._access_cred_name()
-        req_acc_cred = req_access_cred(self._sourcelist.value)
+        access_cred_name = self._access_cred_name()
+        req_acc_cred = self._sourcelist.value.req_access_cred()
 
         self._gb.disabled = True
         self._gb.layout.display = 'none'
@@ -306,10 +308,10 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
                 if cond_fun()]
         self._gb.layout.grid_template_areas = \
                 "\n'sourcelist sourcelist'" \
-                "\n{access_cred}'pathlist {filename}'" \
+                "\n{access_cred_tmpl}'pathlist {filename_tmpl}'" \
                 "\n'dircontent dircontent'\n".format( \
-                    access_cred=('', f"'{access_cred} {access_cred}'\n")[req_acc_cred], \
-                    filename=('filename', 'pathlist')[self._show_only_dirs]) # pylint: disable=all
+                    access_cred_tmpl=('', f"'{access_cred_name} {access_cred_name}'\n")[req_acc_cred], \
+                    filename_tmpl=('filename', 'pathlist')[self._show_only_dirs]) # pylint: disable=all
         # restoring view
         self._gb.disabled = False
         self._gb.layout.display = None
@@ -318,7 +320,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         """Verifies if path falls under parent_path."""
         if (self._sourcelist.value if source is None else source) == SupportedSources.LOCAL:
             return has_parent_path(path, parent_path)
-        return False
+        return True # no verification for cloud sources
 
     def _normalize_path(self, path: str, source: Union[SupportedSources,None]=None) -> str:
         """Normalize a path string."""
@@ -330,13 +332,12 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         """ Returns True if proper access credentials are provided.
             Access Credentials widget has to be visible.
         """
-        return self._access_cred is not None and self._access_cred.layout.display is None \
-                and all(c.value for c in self._access_cred.children)
+        return self._access_cred.is_set()
 
     def _access_cred_changed(self) -> bool:
         """ Returns True if access credentials changed.
         """
-        return self._cloud and self._cloud.check_cred_changed([f.value for f in self._access_cred.children])
+        return self._cloud and self._cloud.check_cred_changed(self._access_cred.values)
 
     def _access_cred_name(self) -> str:
         """ Returns access credentials widget name for layout template.
@@ -348,9 +349,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         try:
             self._deactivate()
             res = self._cloud is not None \
-                    and self._cloud.init_cred( \
-                    (self._access_cred.children[0].value, \
-                    self._access_cred.children[1].value)) \
+                    and self._cloud.init_cred(self._access_cred.values) \
                     and self._cloud.validate_cred()
         except Exception as ex:
             warnings.warn(f"Failed to validate access credential: {ex}")
@@ -365,27 +364,15 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             All widgets are activates/deactivated as well.
         """
         if enable is None:
-            enable = req_access_cred(self._sourcelist.value)
-        for child in self._access_cred.children:
-            child.layout.display = ('none', None)[enable]
-        self._access_cred.layout.display = ('none', None)[enable]
+            enable = self._sourcelist.value.req_access_cred()
+        self._access_cred.enabled = enable
         self._observe_access_cred(enable)
 
-    def _observe_access_cred(self, enable: Optional[bool] = None) -> None:
+    def _observe_access_cred(self, observe: Optional[bool] = None) -> None:
         """Activates(observes)/deactivates(unobservs) access credentials widgets."""
-        if enable is None:
-            enable = req_access_cred(self._sourcelist.value)
-        disable = not enable
-        for child in self._access_cred.children:
-            if enable:
-                child.observe(self._on_access_cred_change, names='value')
-            else:
-                try:
-                    child.unobserve(self._on_access_cred_change, names='value')
-                except (KeyError, ValueError):
-                    pass
-            child.disabled = disable
-        self._access_cred.disabled = disable
+        if observe is None:
+            observe = self._sourcelist.value.req_access_cred()
+        self._access_cred.observe = self._on_access_cred_change if observe else None
 
     def _observe_sourcelist(self, enable: Optional[bool] = True) -> None:
         if self._disable_source:
@@ -403,17 +390,20 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         """
         if old:
             if old == SupportedSources.LOCAL:
-                path = self._pathlist.value
-                filename = self._dircontent.value
+                path = self._expand_path(self._pathlist.value)
+                try:
+                    filename = self._map_disp_to_name[self._dircontent.value]
+                except (KeyError, AttributeError):
+                    filename = None
             else:
-                path = self._pathlist.value.get_cloud_path_with_bucket()
-                filename = self._dircontent.value.filename()
+                path = self._pathlist.value.get_cloud_path_with_bucket() if self._pathlist.value else None
+                filename = self._dircontent.value.filename() if self._dircontent.value else None
             self._sources_backup[old] = (path, filename)
 
     def _process_source_change(self, old: Union[Enum,None] = None, new: Union[Enum,None] = None) -> None:
         """Processes storage source change."""
         self._show_access_cred(False)
-        self._access_cred = build_access_cred_widget(
+        self._access_cred = AccCred.create(
             self._sourcelist.value,
             self._access_cred_name())
         # Reset the dialog
@@ -436,7 +426,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
                     self._sourcelist.value, \
                     None, \
                     None)
-        elif not req_access_cred(self._sourcelist.value):
+        elif not self._sourcelist.value.req_access_cred():
             self._set_form_values( \
                     self._default_source, \
                     self._default_path, \
@@ -453,9 +443,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         except KeyError:
             self._cloud_clients[client_enum] = S3()
             self._cloud = self._cloud_clients[client_enum]
-            self._cloud.init_cred( \
-                    (self._access_cred.children[0].value, \
-                    self._access_cred.children[1].value))
+            self._cloud.init_cred(self._access_cred.values)
 
     def _init_azure(self, client_enum: Enum) -> None:
         """ Creates/initializes the Azure client.
@@ -466,9 +454,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         except KeyError:
             self._cloud_clients[client_enum] = AzureClient()
             self._cloud = self._cloud_clients[client_enum]
-            self._cloud.init_cred( \
-                    (self._access_cred.children[0].value, \
-                    self._access_cred.children[1].value))
+            self._cloud.init_cred(self._access_cred.values)
 
     def _init_cloud(self) -> None:
         """ Creates/initializes the cloud storage client.
@@ -501,16 +487,6 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         """ Reports cloud storage error."""
         self._label.value = self._LBL_TEMPLATE.format(msg, 'red')
 
-    def _clear_access_cred(self) -> None:
-        """ Clears access credentials widgets.
-            Should preceed clearing cloud client/form values.
-        """
-        if self._access_cred is not None:
-            self._observe_access_cred(False)
-            for child in self._access_cred.children:
-                child.value = ''
-            self._observe_access_cred(True)
-
     def _clear_form_values(self, clear_access_cred: bool) -> None:
         """ Clears values for widgets presenting directories and files on source change.
             Called on:
@@ -522,7 +498,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         self._dircontent.options = []
         self._label.value = self._LBL_TEMPLATE.format(self._LBL_NOFILE, 'black')
         if clear_access_cred:
-            self._clear_access_cred()
+            self._access_cred.clear()
             self._init_cloud()
 
     def _deactivate(self) -> None:
@@ -544,7 +520,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             self._filename.unobserve(self._on_filename_change, names='value')
         except (KeyError, ValueError):
             pass
-        self._observe_access_cred(enable=False)
+        self._observe_access_cred(observe=False)
 
     def _activate(self) -> None:
         """ Activate triggers.
@@ -553,7 +529,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         self._pathlist.observe(self._on_pathlist_select, names='value')
         self._dircontent.observe(self._on_dircontent_select, names='value')
         self._filename.observe(self._on_filename_change, names='value')
-        if req_access_cred(self._sourcelist.value):
+        if self._sourcelist.value.req_access_cred():
             self._observe_access_cred()
         self._sourcelist.disabled = self._disable_source
         self._pathlist.disabled = False

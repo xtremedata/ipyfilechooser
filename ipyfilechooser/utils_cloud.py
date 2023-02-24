@@ -247,7 +247,7 @@ class CloudObj: # pylint: disable=too-many-public-methods
 
     def check_short_name(self, short_name) -> bool:
         """ Compares short name with self - special for the master root.  """
-        return short_name == self.MASTER_ROOT_STR.strip(self.SEP_STR) \
+        return short_name == self.MASTER_ROOT_STR \
                 if self.is_master_root() else short_name == self.short_name()
 
     def short_name(self) -> Union[str,None]:
@@ -260,20 +260,20 @@ class CloudObj: # pylint: disable=too-many-public-methods
         """Returns object mathing path argument or None."""
         if not obj_path:
             return None
+        if not obj_path.startswith(self.short_name()):
+            return None
         try:
-            root_name, tail_name = obj_path.split(self.SEP_STR, 1)
+            root_name, tail_name = obj_path.strip(self.SEP_STR).split(self.SEP_STR, 1)
         except ValueError:
             return self if self.check_short_name(obj_path) else None
         if not self._fetched:
             self.fetch_children(cloud_handle, filter_pattern=filter_pattern)
-        if not self.check_short_name(root_name):
-            return None
         if not self.has_children():
             return self
         for child in self._children:
-            res = child.find_path(tail_name, cloud_handle)
-            if res:
-                return res
+           res = child.find_path(tail_name.strip(self.SEP_STR), cloud_handle)
+           if res is not None:
+               return res
         return None
 
     def find_path_ancestry(self, obj_path: str, cloud_handle) -> []:

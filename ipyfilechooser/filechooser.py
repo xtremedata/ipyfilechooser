@@ -592,19 +592,13 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
                 if dir_obj and path_obj and path_obj.ui_fullpath() == path and dir_obj.filename() == filename:
                     obj = dir_obj
                 if not obj:
-                    # this situation is very unlikely and likely would require
-                    # to go through all buckets and their objects to find
-                    # (likely not existing/matching) file - thus best is to
-                    # just reset
-                    # obj = root_obj.find_path(path, self._cloud)
-                    pass 
+                    # need to handle to restore path on source change
+                    obj = root_obj.find_path(path, self._cloud)
                 if not obj:
                     self._clear_form_values(clear_access_cred=True)
-                    proceed = False
                     obj = root_obj
                 # restoring pre-change selection or start from root if not found
                 path = obj
-                proceed = False
 
             if proceed:
                 if path.is_dirup():
@@ -746,8 +740,6 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
     def _on_sourcelist_select(self, change: Mapping[Enum, Enum]) -> None: # pylint: disable=unused-argument
         """Handles selecting a storage source."""
         self._process_source_change(change['old'], change['new'])
-        if self._has_access_cred():
-            self._process_access_cred_change()
 
     def _on_access_cred_change(self, change: Mapping[Enum, Enum]) -> None: # pylint: disable=unused-argument
         """Handles changing storage source access credentials."""

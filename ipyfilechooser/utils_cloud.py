@@ -232,7 +232,6 @@ class CloudObj: # pylint: disable=too-many-public-methods
         parents.append(self)
         return parents
 
-
     def filename(self) -> Union[str,None]:
         """Returns filename."""
         return self._name
@@ -255,6 +254,11 @@ class CloudObj: # pylint: disable=too-many-public-methods
         return self.MASTER_ROOT_STR if self.is_master_root() \
                 else self.ROOT_STR if self.is_root() \
                 else self._name
+
+    def filter_file(self, filter_pattern) -> bool:
+        """Tests if a leaf and passes the pattern filter.
+        """
+        return match_item(self.short_name(), filter_pattern) if self.is_file() else True
 
     def find_path(self, obj_path: str, cloud_handle, filter_pattern: Union[None,str]=None): # pylint: disable=too-many-return-statements
         """Returns object mathing path argument or None."""
@@ -426,7 +430,7 @@ class CloudObj: # pylint: disable=too-many-public-methods
         file_icon = file_icon if file_icon else self.DEF_FILE_ICOM
         if not self._fetched:
             self.fetch_children(cloud_handle, filter_pattern=filter_pattern)
-        return [o.get_dir_tuple(bucket_icon, dir_icon, file_icon) for o in self._children] \
+        return [o.get_dir_tuple(bucket_icon, dir_icon, file_icon) for o in self._children if o.filter_file(filter_pattern)] \
                 if self._prep_children() else []
     # pylint: enable=too-many-arguments
 

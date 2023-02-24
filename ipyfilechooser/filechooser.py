@@ -590,7 +590,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
                 dir_obj = self._dircontent.value
                 obj = None
                 if dir_obj and path_obj and path_obj.ui_fullpath() == path and dir_obj.filename() == filename:
-                    obj = dir_obj
+                    obj = path_obj
                 if not obj:
                     # need to handle to restore path on source change
                     obj = root_obj.find_path(path, self._cloud)
@@ -598,6 +598,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
                     self._clear_form_values(clear_access_cred=True)
                     obj = root_obj
                 # restoring pre-change selection or start from root if not found
+                #print("### po:", path_obj, ", do:", dir_obj, ", o:", obj, ", p:", path)
                 path = obj
 
             if proceed:
@@ -609,8 +610,12 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
                 self._pathlist.value = path
                 self._dircontent.options = path.get_dir_list(self._cloud, filter_pattern=self._filter_pattern)
                 if not filename:
-                    # cannot preselect to generate change events in every case
                     self._dircontent.value = None
+                else:
+                    for s,o in self._dircontent.options:
+                        if o.filename() == filename:
+                            self._dircontent.value = s
+                            break
                 self._filename.value = filename
                 if not path.fetched:
                     self._cloud_storage_error(self._cloud.error)
@@ -622,6 +627,9 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
     def _set_form_values_local(self, path: str, filename: str) -> None: # pylint: disable=too-many-locals
         """Set the form values for the local storage."""
         # Check if the path falls inside the configured sandbox path
+        if path is None:
+            path = self._default_path
+
         if self._sandbox_path and not self._has_parent_path(path, self._sandbox_path):
             raise ParentPathError(path, self._sandbox_path)
 
@@ -733,6 +741,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
                 warnings.warn(f"Storage source '{source.name:.10}' not implemented/uknown")
         except Exception as ex:
             warnings.warn(f"Failed to set form values: {ex}")
+            raise
         finally:
             # Reenable triggers
             self._activate()
@@ -863,8 +872,13 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         if self._gb.layout.display is None:
             self._apply_selection()
             if SupportedSources.is_cloud(self._sourcelist.value):
-                sel_obj = self._dircontent.value
-                if isinstance(sel_obj, CloudObj):
+                #sel_obj = self._dircontent.value
+                #if isinstance(sel_obj, CloudObj):
+                try:
+                    sel_obj = next(o for _,o in self._dircontent.options if o.filename() == self._selected_filename)
+                except StopIteration as ex:
+                    self._data_error = f"Not found {self._selected_filename} in current path"
+                else:
                     self._data = sel_obj.fetch_object(self._cloud)
                     self._data_error = self._cloud.error
             else:
@@ -879,19 +893,20 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         if self._gb.layout.display is None:
             self._apply_selection()
             if SupportedSources.is_cloud(self._sourcelist.value):
-                sel_obj = self._dircontent.value
-                if isinstance(sel_obj, CloudObj):
-                    filename = sel_obj.filename()
-                    files = {o.filename():o for n,o in self._dircontent.options}
-                    dbx_meta = DbxMeta.get_dbx_like_files(files, filename)
-                    self._data = {}
-                    self._data_error = {}
-                    for dbx_meta_sfx, fobj in dbx_meta.items():
-                        if dbx_meta_sfx == DbxMeta.META_LABEL:
-                            self._data[dbx_meta_sfx] = fobj
-                        else:
-                            self._data[dbx_meta_sfx] = fobj.fetch_object(self._cloud)
-                            self._data_error[dbx_meta_sfx] = self._cloud.error
+                #sel_obj = self._dircontent.value
+                #if isinstance(sel_obj, CloudObj):
+                #    filename = sel_obj.filename()
+                filename = self._selected_filename
+                files = {o.filename():o for n,o in self._dircontent.options}
+                dbx_meta = DbxMeta.get_dbx_like_files(files, filename)
+                self._data = {}
+                self._data_error = {}
+                for dbx_meta_sfx, fobj in dbx_meta.items():
+                    if dbx_meta_sfx == DbxMeta.META_LABEL:
+                        self._data[dbx_meta_sfx] = fobj
+                    else:
+                        self._data[dbx_meta_sfx] = fobj.fetch_object(self._cloud)
+                        self._data_error[dbx_meta_sfx] = self._cloud.error
             else:
                 filename = self.selected_filename
                 filepath = self.selected_path
@@ -981,9 +996,10 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
 
     def _expand_path(self, path) -> str:
         """Calculate the full path using the sandbox path."""
-        if self._sandbox_path:
-            path = self._default_path if not path \
-                    else os.path.join(self._sandbox_path, path.lstrip(os.sep))
+        if isinstance(path, str):
+            if self._sandbox_path:
+                path = self._default_path if not path \
+                        else os.path.join(self._sandbox_path, path.lstrip(os.sep))
         return path
 
     def _restrict_path(self, path) -> str:
@@ -1024,10 +1040,11 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         self._select.description = self._select_desc
         self._select.disabled = False
         self._read.description = self._read_desc
-        self._read.disabled = True
         self._download.description = self._download_desc
         self._download.disabled = True
         self._label.value = self._LBL_TEMPLATE.format(self._LBL_NOFILE, 'black')
+        self._read.disabled = path is None or filename is None
+        self._read_meta.disabled = self._read.disabled
 
         if path is not None:
             self._default_path = self._normalize_path(path)

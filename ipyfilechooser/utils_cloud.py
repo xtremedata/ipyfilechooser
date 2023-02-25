@@ -275,9 +275,9 @@ class CloudObj: # pylint: disable=too-many-public-methods
         if not self.has_children():
             return self
         for child in self._children:
-           res = child.find_path(tail_name.strip(self.SEP_STR), cloud_handle)
-           if res is not None:
-               return res
+            res = child.find_path(tail_name.strip(self.SEP_STR), cloud_handle)
+            if res is not None:
+                return res
         return None
 
     def find_path_ancestry(self, obj_path: str, cloud_handle) -> []:

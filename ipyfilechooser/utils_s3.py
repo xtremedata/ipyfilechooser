@@ -14,7 +14,7 @@ from .utils_cloud import CloudClient, CloudObj
 
 
 
-class S3(CloudClient): # pylint: disable=too-many-public-methods
+class S3(CloudClient): # pylint: disable=too-many-public-methods,too-many-instance-attributes
     """ S3 access object.
     """
 
@@ -376,6 +376,12 @@ class S3(CloudClient): # pylint: disable=too-many-public-methods
             if data is None:
                 self._error = f"Failed to parse response to get_object for: /{bucket[:20]}/{obj_path[:20]}..." # pylint: disable=line-too-long
             return data
+
+    def put_json_object(self, data: object, bucket: str, obj_path: str) -> Union[None,str]: # pylint: disable=no-self-use
+        """ Stores provided JSON object in the cloud.
+            Returns error description or None
+        """
+        raise RuntimeError("Not implemented")
 
 
 

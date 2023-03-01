@@ -64,6 +64,12 @@ class CloudClient:
         """
         raise RuntimeError("Not implemented")
 
+    def put_json_object(self, data: object, bucket: str, obj_path: str) -> Union[None,str]: # pylint: disable=no-self-use
+        """ Stores provided JSON object in the cloud.
+            Returns error description or None
+        """
+        raise RuntimeError("Not implemented")
+
 
     @property
     def error(self):
@@ -267,7 +273,7 @@ class CloudObj: # pylint: disable=too-many-public-methods
         if not obj_path.startswith(self.short_name()):
             return None
         try:
-            root_name, tail_name = obj_path.strip(self.SEP_STR).split(self.SEP_STR, 1)
+            _, tail_name = obj_path.strip(self.SEP_STR).split(self.SEP_STR, 1)
         except ValueError:
             return self if self.check_short_name(obj_path) else None
         if not self._fetched:
@@ -430,8 +436,9 @@ class CloudObj: # pylint: disable=too-many-public-methods
         file_icon = file_icon if file_icon else self.DEF_FILE_ICOM
         if not self._fetched:
             self.fetch_children(cloud_handle, filter_pattern=filter_pattern)
-        return [o.get_dir_tuple(bucket_icon, dir_icon, file_icon) for o in self._children if o.filter_file(filter_pattern)] \
-                if self._prep_children() else []
+        return [o.get_dir_tuple(bucket_icon, dir_icon, file_icon) \
+            for o in self._children if o.filter_file(filter_pattern)] \
+            if self._prep_children() else []
     # pylint: enable=too-many-arguments
 
 

@@ -28,7 +28,11 @@ from .utils import \
         get_drive_letters, \
         normalize_path, \
         has_parent_path, \
-        read_file
+        read_file, \
+        read_json, \
+        save_file, \
+        save_json, \
+        save_dbx_meta
 from .utils_sources import \
         SupportedSources, \
         AccCred, \
@@ -55,6 +59,8 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             change_desc: str = 'Change',
             read_desc: str = 'Read',
             read_meta_desc: str = 'Read dbX Meta',
+            save_desc: str = 'Save',
+            save_meta_desc: str = 'Save dbX Meta',
             download_desc: str = 'Download',
             show_hidden: bool = False,
             select_default: bool = False,
@@ -91,6 +97,8 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         self._change_desc = change_desc
         self._read_desc = read_desc
         self._read_meta_desc = read_meta_desc
+        self._save_desc = save_desc
+        self._save_meta_desc = save_meta_desc
         self._download_desc = download_desc
         self._select_default = select_default
         self._dir_icon = dir_icon
@@ -176,6 +184,20 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
                 width='10em'
             )
         )
+        self._save = Button(
+            description=self._save_desc,
+            layout=Layout(
+                min_width='6em',
+                width='6em'
+            )
+        )
+        self._save_meta = Button(
+            description=self._save_meta_desc,
+            layout=Layout(
+                min_width='6em',
+                width='10em'
+            )
+        )
         self._download = Button(
             description=self._download_desc,
             layout=Layout(
@@ -212,6 +234,8 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         self._cancel.on_click(self._on_cancel_click)
         self._read.on_click(self._on_read_click)
         self._read_meta.on_click(self._on_read_meta_click)
+        self._save.on_click(self._on_save_click)
+        self._save_meta.on_click(self._on_save_meta_click)
 
         # Selected file label
         self._label = HTML(
@@ -255,6 +279,8 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
                 self._cancel,
                 self._read,
                 self._read_meta,
+                self._save,
+                self._save_meta,
                 self._download
             ],
             layout=Layout(width='auto')
@@ -545,18 +571,24 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             self._cancel.disabled = True
             self._read.disabled = True # not is_valid_file
             self._read_meta.disabled = True # not is_valid_file
+            self._save.disabled = True # not is_valid_file
+            self._save_meta.disabled = True # not is_valid_file
             self._download.disabled = True # not is_valid_file
         elif is_valid_file:
             self._select.disabled = False
             self._cancel.disabled = False
             self._read.disabled = False
             self._read_meta.disabled = False
+            self._save.disabled = False
+            self._save_meta.disabled = False
             self._download.disabled = False
         else:
             self._select.disabled = self._gb.layout.display is None
             self._cancel.disabled = False
             self._read.disabled = True
             self._read_meta.disabled = True
+            self._save.disabled = True
+            self._save_meta.disabled = True
             self._download.disabled = True
 
     def _set_form_values_cloud(self, path: CloudObj, filename: str) -> None: # pylint: disable=too-many-branches
@@ -920,11 +952,40 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
                         self._data[dbx_meta_sfx] = fname
                     else:
                         try:
-                            error, data = read_file(filepath, fname)
+                            error, data = read_json(filepath, fname)
                             self._data[dbx_meta_sfx] = data
                             self._data_error[dbx_meta_sfx] = error
                         except (ValueError,TypeError,KeyError) as ex:
                             self._data_error[dbx_meta_sfx] = str(ex)
+            # If shown, close the dialog and apply the selection
+            self._process_selection()
+
+    def _on_save_click(self, _b) -> None:
+        """Handle save button clicks."""
+        if self._gb.layout.display is None:
+            self._apply_selection()
+            if SupportedSources.is_cloud(self._sourcelist.value):
+                warnings.warn("Function not implemented yet")
+            else:
+                error, data = save_file(self.selected_path, self.selected_filename)
+                self._data = data
+                self._data_error = error
+            # If shown, close the dialog and apply the selection
+            self._process_selection()
+
+    def _on_save_meta_click(self, _b) -> None:
+        """Handle save dbX Metadata button clicks."""
+        if self._gb.layout.display is None:
+            self._apply_selection()
+            if SupportedSources.is_cloud(self._sourcelist.value):
+                warnings.warn("Function not implemented yet")
+            else:
+                filename = self.selected_filename
+                filepath = self.selected_path
+                error = save_dbx_meta(self._data, filepath, filename, abort_if_exist=False, abort_if_missing=False, split=True)
+                if error:
+                    warnings.warn(f"Failed to save dbX meta '{filename[:50]}': {error}")
+
             # If shown, close the dialog and apply the selection
             self._process_selection()
 
@@ -1045,6 +1106,8 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         self._label.value = self._LBL_TEMPLATE.format(self._LBL_NOFILE, 'black')
         self._read.disabled = path is None or filename is None
         self._read_meta.disabled = self._read.disabled
+        self._save.disabled = path is None or filename is None
+        self._save_meta.disabled = self._save.disabled
 
         if path is not None:
             self._default_path = self._normalize_path(path)

@@ -193,7 +193,7 @@ def save_json(data: object, filename: str, abort_if_exist: bool=True) -> Union[N
     """
     if abort_if_exist and os.path.exists(filename):
         return f"File {filename[:50]}"
-    with open(filename, "wb") as fd: # pylint: disable=invalid-name
+    with open(filename, "w", encoding="utf-8") as fd: # pylint: disable=invalid-name
         dump(data, fd)
     return None
 
@@ -208,14 +208,22 @@ def save_dbx_meta( # pylint: disable=too-many-arguments
     """ Saves dbX metadata.
     """
     if split:
+        error = {}
         for key in DbxMeta.get_dbx_suffixes():
             try:
-                error = save_json(data[key], f'{fileroot}_{key}.json', abort_if_exist)
-                if error:
-                    return error
+                error[key] = save_json( \
+                        data[key], \
+                        os.path.join(filepath, f'{fileroot}_{key}.json'), \
+                        abort_if_exist)
+                if error[key] is not None:
+                    break
             except (KeyError, AttributeError) as ex:
+                error[key] = f"Invalid dbX metadata for key:{key}, error:{ex}"
                 if abort_if_missing:
-                    return f"Invalid dbX metadata: {ex}"
-        return None
-
-    return save_json(data, os.path.join(filepath, f'{fileroot}_all.json'), abort_if_exist)
+                    break
+    else:
+        error = save_json( \
+                data, \
+                os.path.join(filepath, f'{fileroot}_all.json'), \
+                abort_if_exist)
+    return error

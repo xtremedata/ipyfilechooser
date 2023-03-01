@@ -562,10 +562,15 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         self._pathlist.disabled = False
         self._dircontent.disabled = False
 
-    def _update_widgets_on_set(self, is_valid_file: bool, deactivate_dialog: bool=False) -> None:
+    def _update_widgets_on_set(self, \
+            is_valid_file: bool, \
+            is_file: bool=None, \
+            deactivate_dialog: bool=False) -> None:
         """ Updates widgets on change.
             Notably allows action buttons based on selected object type.
         """
+        if is_file is None:
+            is_file = is_valid_file
         if deactivate_dialog:
             self._select.disabled = False
             self._cancel.disabled = True
@@ -587,8 +592,8 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             self._cancel.disabled = False
             self._read.disabled = True
             self._read_meta.disabled = True
-            self._save.disabled = True
-            self._save_meta.disabled = True
+            self._save.disabled = not is_file
+            self._save_meta.disabled = not is_file
             self._download.disabled = True
 
     def _set_form_values_cloud(self, path: CloudObj, filename: str) -> None: # pylint: disable=too-many-branches
@@ -753,7 +758,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
 
                 #self._select.disabled = (check1 and check2) or check3 or check4 or check5
                 not_a_valid_file = (check1 and check2) or check3 or check4 or check5
-                self._update_widgets_on_set(not not_a_valid_file)
+                self._update_widgets_on_set(not not_a_valid_file, bool(filename))
         except PermissionError:
             # Deselect the unreadable folder and generate a warning
             self._dircontent.value = None
@@ -982,9 +987,13 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             else:
                 filename = self.selected_filename
                 filepath = self.selected_path
-                error = save_dbx_meta(self._data, filepath, filename, abort_if_exist=False, abort_if_missing=False, split=True)
-                if error:
-                    warnings.warn(f"Failed to save dbX meta '{filename[:50]}': {error}")
+                self._data_error = save_dbx_meta( \
+                        self._data, \
+                        filepath, \
+                        filename, \
+                        abort_if_exist=False, \
+                        abort_if_missing=False, \
+                        split=True)
 
             # If shown, close the dialog and apply the selection
             self._process_selection()
@@ -1016,7 +1025,10 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         #self._cancel.layout.display = 'none'
         if select:
             self._select.description = self._change_desc
-        self._update_widgets_on_set(is_valid_file=select, deactivate_dialog=True)
+        self._update_widgets_on_set( \
+                is_valid_file=select, \
+                is_file=bool(self._filename.value), \
+                deactivate_dialog=True)
 
     def _apply_selection_cloud(self) -> None:
         """Close the dialog and apply the selection for cloud source."""

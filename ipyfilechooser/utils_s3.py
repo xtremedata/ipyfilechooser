@@ -436,6 +436,7 @@ class S3Res:
         try:
             data = self._res['Body'].read()
         except: # pylint: disable=bare-except
+            warnings.warn(f"Invalid response")
             return None
         else:
             return data

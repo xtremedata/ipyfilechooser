@@ -3,8 +3,10 @@
 
 from os import path
 from typing import Union
+from json import loads
 
 from .utils import match_item
+from .utils_dbx import DbxMeta
 
 
 
@@ -313,10 +315,13 @@ class CloudObj: # pylint: disable=too-many-public-methods
         self._sorted = False
         return cloud_obj
 
-    def fetch_object(self, cloud_handle) -> object:
-        """Fetches AWS S3 object."""
+    def fetch_object(self, cloud_handle, json_type: bool=False) -> object:
+        """Fetches cloud object."""
         bucket, obj_path = self.get_cloud_call_data()
-        return cloud_handle.get_object(bucket, obj_path)
+        data = cloud_handle.get_object(bucket, obj_path)
+        if json_type and cloud_handle.error is None:
+            data = loads(data.decode("utf-8"))
+        return data
 
     def fetch_children(self, \
             cloud_handle, \
@@ -343,7 +348,7 @@ class CloudObj: # pylint: disable=too-many-public-methods
     def parse_objpaths(self, \
             paths: Union[list,None], \
             filter_pattern: Union[None,str]=None) -> Union[list,None]:
-        """ Parses AWS S3 objects paths (not buckets).
+        """ Parses cloud objects paths (not buckets).
 
             Marks "fetched" flag, to allow this method to also be used to test
             parsing paths without fetching actual data.
@@ -368,7 +373,7 @@ class CloudObj: # pylint: disable=too-many-public-methods
             if descendents:
                 dir_child.parse_objpaths(descendents, filter_pattern)
             self._children.append(dir_child)
-        # All AWS S3 objects are retrieved at once
+        # All cloud objects are retrieved at once
         self._fetched = True
         self._sorted = False
         return self._children
@@ -377,8 +382,8 @@ class CloudObj: # pylint: disable=too-many-public-methods
             children: Union[list,None], \
             filter_pattern: Union[str,None]=None, \
             buckets: bool=True) -> Union[list,None]:
-        """Parses fetched from AWS string data of available objects in a bucket."""
-        # Checking response for AWS call exceptions/errors
+        """Parses fetched from cloud string data of available objects in a bucket."""
+        # Checking response for cloud call exceptions/errors
         if children is None:
             self._fetched = False
             self._sorted = False
@@ -471,3 +476,76 @@ class CloudObj: # pylint: disable=too-many-public-methods
     def children(self):
         """Property getter."""
         return self._children
+
+
+
+
+def read_file( \
+        filename: str, \
+        files: list, \
+        cloud: object, \
+        json_type: bool=False) -> object:
+    """ Fetches data from provided cloud.
+    """
+    data = None
+    error = None
+    try:
+        sel_obj = next(o for _,o in files if o.filename() == filename)
+    except StopIteration as ex:
+        error = f"Not found {filename[:100]} in the selected path"
+    else:
+        data = sel_obj.fetch_object(cloud, json_type)
+        error = cloud.error
+    return (data, error)
+
+
+def read_json( \
+        filename: str, \
+        files: list, \
+        cloud: object) -> object:
+    """ Fetches data from provided cloud.
+    """
+    return read_file(filename, files, cloud, json_type=True)
+
+
+def read_dbx_meta( \
+        filename: str, \
+        files: list, \
+        cloud: object, \
+        abort_if_incomplete: bool=False) -> object:
+    """ Fetches dbX metadata from provided cloud.
+    """
+    data = {}
+    error = {}
+    dbx_meta = DbxMeta.get_dbx_like_files(files, filename)
+    if abort_if_incomplete and DbxMeta.DBX_SFX_SET > dbx_meta.keys():
+        data = None
+        error = f"Failed to read dbX metadata {filename[:100]} due to incomplete data available"
+    for dbx_meta_sfx, fobj in dbx_meta.items():
+        if dbx_meta_sfx == DbxMeta.META_LABEL:
+            data[dbx_meta_sfx] = fobj
+        else:
+            data[dbx_meta_sfx] = fobj.fetch_object(cloud, json_type=True)
+            error[dbx_meta_sfx] = cloud.error
+    return (data, error)
+
+
+def read_data(
+        filename: str, \
+        files: list, \
+        cloud: object, \
+        json_type: bool=True, \
+        dbx_metadata_type: bool=False, \
+        abort_if_incomplete: bool=False) -> object:
+    """ Reads requested type of data from selected cloud storage.
+    """
+    data = None
+    error = None
+
+    if dbx_metadata_type:
+        data, error = read_dbx_meta(filename, files, cloud, abort_if_incomplete)
+    elif json_type:
+        data, error = read_json(filename, files, cloud)
+    else:
+        data, error = read_file(filename, files, cloud)
+    return (data, error)

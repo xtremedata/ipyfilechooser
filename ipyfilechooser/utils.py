@@ -178,24 +178,42 @@ def read_json(filepath: str, filename: str) -> bytes:
     return (error, data)
 
 
-def save_file(data: object, filename: str, abort_if_exist: bool=True) -> Union[None,str]:
+def save_file( \
+        data: object, \
+        filepath: str, \
+        filename: str, \
+        abort_if_exist: bool=True) -> Union[None,str]:
     """ Writes data into specified file.
     """
-    if abort_if_exist and os.path.exists(filename):
-        return f"File {filename[:50]}"
-    with open(filename, "w", encoding="utf-8") as fd: # pylint: disable=invalid-name
-        fd.write(data)
-    return None
+    error = None
+    full_filepath = os.path.join(filepath, filename)
+    if abort_if_exist and os.path.exists(full_filepath):
+        return f"File exists: {full_filepath[:100]}"
+    with open(full_filepath, "wb") as fd: # pylint: disable=invalid-name
+        try:
+            fd.write(data)
+        except (TypeError, IOError) as ex:
+            error = f"Failed to write file:{full_filepath[:100]}, error:{ex}"
+    return error
 
 
-def save_json(data: object, filename: str, abort_if_exist: bool=True) -> Union[None,str]:
+def save_json( \
+        data: object, \
+        filepath: str, \
+        filename: str, \
+        abort_if_exist: bool=True) -> Union[None,str]:
     """ Writes data into specified file.
     """
-    if abort_if_exist and os.path.exists(filename):
-        return f"File {filename[:50]}"
-    with open(filename, "w", encoding="utf-8") as fd: # pylint: disable=invalid-name
-        dump(data, fd)
-    return None
+    error = None
+    full_filepath = os.path.join(filepath, filename)
+    if abort_if_exist and os.path.exists(full_filepath):
+        return f"File exists: {full_filepath[:100]}"
+    with open(full_filepath, "w", encoding="utf-8") as fd: # pylint: disable=invalid-name
+        try:
+            dump(data, fd)
+        except (TypeError, IOError) as ex:
+            error = f"Failed to write json file:{full_filepath[:100]}, error:{ex}"
+    return error
 
 
 def save_dbx_meta( # pylint: disable=too-many-arguments
@@ -216,7 +234,8 @@ def save_dbx_meta( # pylint: disable=too-many-arguments
             try:
                 error[key] = save_json( \
                         data[key], \
-                        os.path.join(filepath, f'{fileroot}_{key}.json'), \
+                        filepath, \
+                        f'{fileroot}_{key}.json', \
                         abort_if_exist)
                 if error[key] is not None:
                     break
@@ -227,6 +246,7 @@ def save_dbx_meta( # pylint: disable=too-many-arguments
     else:
         error = save_json( \
                 data, \
-                os.path.join(filepath, f'{fileroot}_all.json'), \
+                filepath, \
+                f'{fileroot}_all.json', \
                 abort_if_exist)
     return error

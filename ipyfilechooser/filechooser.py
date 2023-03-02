@@ -62,6 +62,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             read_desc: str = 'Read',
             read_meta_desc: str = 'Read dbX Meta',
             save_desc: str = 'Save',
+            save_json_desc: str = 'Save JSON (on)/bytes (off)',
             save_meta_desc: str = 'Save dbX Meta',
             save_split_desc: str = 'Split dbX Meta on Save',
             download_desc: str = 'Download',
@@ -101,6 +102,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         self._read_desc = read_desc
         self._read_meta_desc = read_meta_desc
         self._save_desc = save_desc
+        self._save_json_desc = save_json_desc
         self._save_meta_desc = save_meta_desc
         self._save_split_desc = save_split_desc
         self._download_desc = download_desc
@@ -195,6 +197,14 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
                 width='6em'
             )
         )
+        self._save_json = Checkbox(
+            description=self._save_json_desc,
+            value=True,
+            layout=Layout(
+                min_width='10em',
+                width='18em'
+            )
+        )
         self._save_meta = Button(
             description=self._save_meta_desc,
             layout=Layout(
@@ -285,6 +295,9 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             layout=Layout(width='auto')
         )
 
+        buttonbar_layout = Layout(width='auto', \
+                justify_content='space-between')
+
         buttonbar = HBox(
             children=[
                 self._select,
@@ -305,10 +318,17 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         buttonbar_save = HBox(
             children=[
                 self._save,
+                self._save_json,
+            ],
+            layout=buttonbar_layout
+        )
+
+        buttonbar_save_dbx = HBox(
+            children=[
                 self._save_meta,
                 self._save_split
             ],
-            layout=Layout(width='auto')
+            layout=buttonbar_layout
         )
 
         # Call setter to set initial form values
@@ -327,7 +347,8 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
                 statusbar,
                 buttonbar,
                 buttonbar_read,
-                buttonbar_save
+                buttonbar_save,
+                buttonbar_save_dbx
             ],
             layout=layout,
             **kwargs
@@ -605,6 +626,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             self._read.disabled = True # not is_valid_file
             self._read_meta.disabled = True # not is_valid_file
             self._save.disabled = True # not is_valid_file
+            self._save_json.disabled = True
             self._save_meta.disabled = True # not is_valid_file
             self._save_split.disabled = True
         elif is_valid_file:
@@ -614,6 +636,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             self._read.disabled = False
             self._read_meta.disabled = False
             self._save.disabled = False or self._data is None
+            self._save_json.disabled = False or self._data is None
             self._save_meta.disabled = False or self._data is None
             self._save_split.disabled = False or self._data is None
         else:
@@ -623,6 +646,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             self._read.disabled = True
             self._read_meta.disabled = True
             self._save.disabled = not is_file or self._data is None
+            self._save_json.disabled = not is_file or self._data is None
             self._save_meta.disabled = not is_file or self._data is None
             self._save_split.disabled = not is_file or self._data is None
 
@@ -1002,8 +1026,8 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             if SupportedSources.is_cloud(self._sourcelist.value):
                 warnings.warn("Function not implemented yet")
             else:
-                error = save_file(self._data, self.selected_path, self.selected_filename)
-                self._data_error = error
+                self._data_error = save_json(self._data, self.selected_path, self.selected_filename) if self._save_json_desc \
+                        else save_file(self._data, self.selected_path, self.selected_filename)
             # If shown, close the dialog and apply the selection
             self._process_selection()
 
@@ -1022,7 +1046,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
                         filename, \
                         abort_if_exist=False, \
                         abort_if_missing=False, \
-                        split=self._save_split)
+                        split=self._save_split.value)
 
             # If shown, close the dialog and apply the selection
             self._process_selection()

@@ -14,8 +14,10 @@ import warnings
 
 from enum import Enum
 from typing import Optional, Sequence, Mapping, Callable, Union
-from ipywidgets import Widget, Dropdown, Text, Select, Button, HTML
-from ipywidgets import Layout, GridBox, Box, HBox, VBox, ValueWidget
+from ipywidgets import \
+        Widget, Dropdown, Text, Select, Button, HTML, \
+        Layout, GridBox, Box, HBox, VBox, ValueWidget, \
+        Checkbox
 
 # Local Imports
 from .errors import ParentPathError, InvalidFileNameError, InvalidSourceError
@@ -61,6 +63,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             read_meta_desc: str = 'Read dbX Meta',
             save_desc: str = 'Save',
             save_meta_desc: str = 'Save dbX Meta',
+            save_split_desc: str = 'Split dbX Meta on Save',
             download_desc: str = 'Download',
             show_hidden: bool = False,
             select_default: bool = False,
@@ -99,6 +102,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         self._read_meta_desc = read_meta_desc
         self._save_desc = save_desc
         self._save_meta_desc = save_meta_desc
+        self._save_split_desc = save_split_desc
         self._download_desc = download_desc
         self._select_default = select_default
         self._dir_icon = dir_icon
@@ -198,6 +202,14 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
                 width='10em'
             )
         )
+        self._save_split = Checkbox(
+            description=self._save_split_desc,
+            value=True,
+            layout=Layout(
+                min_width='10em',
+                width='18em'
+            )
+        )
         self._download = Button(
             description=self._download_desc,
             layout=Layout(
@@ -277,11 +289,24 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             children=[
                 self._select,
                 self._cancel,
+                self._download
+            ],
+            layout=Layout(width='auto')
+        )
+
+        buttonbar_read = HBox(
+            children=[
                 self._read,
                 self._read_meta,
+            ],
+            layout=Layout(width='auto')
+        )
+
+        buttonbar_save = HBox(
+            children=[
                 self._save,
                 self._save_meta,
-                self._download
+                self._save_split
             ],
             layout=Layout(width='auto')
         )
@@ -300,7 +325,9 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
                 self._title,
                 self._gb,
                 statusbar,
-                buttonbar
+                buttonbar,
+                buttonbar_read,
+                buttonbar_save
             ],
             layout=layout,
             **kwargs
@@ -574,27 +601,30 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
         if deactivate_dialog:
             self._select.disabled = False
             self._cancel.disabled = True
+            self._download.disabled = True # not is_valid_file
             self._read.disabled = True # not is_valid_file
             self._read_meta.disabled = True # not is_valid_file
             self._save.disabled = True # not is_valid_file
             self._save_meta.disabled = True # not is_valid_file
-            self._download.disabled = True # not is_valid_file
+            self._save_split.disabled = True
         elif is_valid_file:
             self._select.disabled = False
             self._cancel.disabled = False
+            self._download.disabled = False
             self._read.disabled = False
             self._read_meta.disabled = False
-            self._save.disabled = False
-            self._save_meta.disabled = False
-            self._download.disabled = False
+            self._save.disabled = False or self._data is None
+            self._save_meta.disabled = False or self._data is None
+            self._save_split.disabled = False or self._data is None
         else:
             self._select.disabled = self._gb.layout.display is None
             self._cancel.disabled = False
+            self._download.disabled = True
             self._read.disabled = True
             self._read_meta.disabled = True
-            self._save.disabled = not is_file
-            self._save_meta.disabled = not is_file
-            self._download.disabled = True
+            self._save.disabled = not is_file or self._data is None
+            self._save_meta.disabled = not is_file or self._data is None
+            self._save_split.disabled = not is_file or self._data is None
 
     def _set_form_values_cloud(self, path: CloudObj, filename: str) -> None: # pylint: disable=too-many-branches
         """Set the form values for the cloud storage."""
@@ -972,8 +1002,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             if SupportedSources.is_cloud(self._sourcelist.value):
                 warnings.warn("Function not implemented yet")
             else:
-                error, data = save_file(self.selected_path, self.selected_filename)
-                self._data = data
+                error = save_file(self._data, self.selected_path, self.selected_filename)
                 self._data_error = error
             # If shown, close the dialog and apply the selection
             self._process_selection()
@@ -993,7 +1022,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
                         filename, \
                         abort_if_exist=False, \
                         abort_if_missing=False, \
-                        split=True)
+                        split=self._save_split)
 
             # If shown, close the dialog and apply the selection
             self._process_selection()

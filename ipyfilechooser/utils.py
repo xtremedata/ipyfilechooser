@@ -183,7 +183,7 @@ def save_file(data: object, filename: str, abort_if_exist: bool=True) -> Union[N
     """
     if abort_if_exist and os.path.exists(filename):
         return f"File {filename[:50]}"
-    with open(filename, "wb") as fd: # pylint: disable=invalid-name
+    with open(filename, "w", encoding="utf-8") as fd: # pylint: disable=invalid-name
         fd.write(data)
     return None
 
@@ -207,6 +207,9 @@ def save_dbx_meta( # pylint: disable=too-many-arguments
         split: bool=False) -> Union[None,str]:
     """ Saves dbX metadata.
     """
+    if not isinstance(data, dict):
+        return f"Invalid dbX metadata - dictionary is required {type(data).__name__}"
+
     if split:
         error = {}
         for key in DbxMeta.get_dbx_suffixes():

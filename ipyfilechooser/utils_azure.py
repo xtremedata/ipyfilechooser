@@ -4,8 +4,14 @@
 
 from typing import Union
 import warnings
-from azure.storage.blob import BlobServiceClient, ContainerClient, BlobClient
-from azure.core.exceptions import AzureError, HttpResponseError
+
+try:
+    from azure.storage.blob import BlobServiceClient, ContainerClient, BlobClient
+    from azure.core.exceptions import AzureError, HttpResponseError
+except ImportError:
+    AZURE_AVAIL=False
+else:
+    AZURE_AVAIL=True
 
 from .utils_cloud import CloudClient, CloudObj
 

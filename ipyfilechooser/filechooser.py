@@ -567,7 +567,7 @@ class FileChooser(VBox, ValueWidget): # pylint: disable=too-many-public-methods,
             return True
         if source == SupportedSources.LOCAL and not isinstance(obj, str) \
                 or source == SupportedSources.AWS and not isinstance(obj, S3Obj) and (not isinstance(cloud, S3) or cloud is None) \
-                or source == SupportedSources.AZURE and not isinstance(obj, AzureObj) and (not isinstance(cloud, AzureObj) or cloud is None):
+                or source == SupportedSources.AZURE and not isinstance(obj, AzureObj) and (not isinstance(cloud, AzureClient) or cloud is None):
                     return False
         return obj.check_cloud(path) if path and obj else False
 
